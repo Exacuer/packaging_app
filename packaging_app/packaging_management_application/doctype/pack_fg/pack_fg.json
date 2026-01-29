@@ -1,0 +1,123 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-01-22 21:03:17.924181",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_cvny",
+  "naming_series",
+  "column_break_zeuk",
+  "company",
+  "posting_date",
+  "posting_time",
+  "stock_entry",
+  "amended_from",
+  "section_break_aapo",
+  "packing_items",
+  "packed_fg_items"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_cvny",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Pack FG",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "naming_series",
+   "options": "FGP"
+  },
+  {
+   "fieldname": "column_break_zeuk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "default": "Now",
+   "fieldname": "posting_time",
+   "fieldtype": "Time",
+   "label": "Posting Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "stock_entry",
+   "fieldtype": "Link",
+   "label": "Stock Entry",
+   "options": "Stock Entry",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "section_break_aapo",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "packing_items",
+   "fieldtype": "Table",
+   "label": "Packing Items",
+   "options": "Pack FG Item Source"
+  },
+  {
+   "fieldname": "packed_fg_items",
+   "fieldtype": "Table",
+   "label": "Packed FG Items",
+   "options": "Pack FG Item Target"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-01-29 21:15:00.000000",
+ "modified_by": "Administrator",
+ "module": "Packaging Management Application",
+ "name": "Pack FG",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
