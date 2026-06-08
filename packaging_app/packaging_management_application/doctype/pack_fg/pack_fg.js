@@ -87,10 +87,38 @@ frappe.ui.form.on("Pack FG Item Source", {
 	},
 
 	item_code(frm, cdt, cdn) {
-		let child = locals[cdt][cdn];
-		if (child.serial_and_batch_bundle) {
+		let row = locals[cdt][cdn];
+
+		if (row.serial_and_batch_bundle) {
 			frappe.model.set_value(cdt, cdn, "serial_and_batch_bundle", "");
 		}
+
+		frappe.db.get_doc("Item", row.item_code).then((itemDoc) => {
+			console.log(
+				"Fetched item details for",
+				row.item_code,
+				itemDoc.custom_packing_material_details
+			);
+
+			if (itemDoc.custom_packing_material_details?.length) {
+
+				// Optional: clear existing rows first
+				frm.clear_table("packed_fg_items");
+
+				itemDoc.custom_packing_material_details.forEach((packingDetail) => {
+					console.log("Packing Detail:", packingDetail);
+
+					let packing_row = frm.add_child("packed_fg_items");
+					packing_row.item_code = packingDetail.item;
+					packing_row.filling_capacity = packingDetail.filling_capacity;
+
+					// Add other fields if required
+					// packing_row.uom = packingDetail.uom;
+				});
+
+				frm.refresh_field("packed_fg_items");
+			}
+		});
 	},
 
 	source_warehouse(frm, cdt, cdn) {
