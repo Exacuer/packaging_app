@@ -40,6 +40,7 @@ class PackFG(Document):
 		se = frappe.new_doc("Stock Entry")
 		se.stock_entry_type = "Repack"
 		se.purpose = "Repack"
+		se.custom_pack_fg = self.name  # Link back to Pack FG
 		se.company = self.company
 		se.posting_date = self.posting_date
 		se.posting_time = self.posting_time or nowtime()
