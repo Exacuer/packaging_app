@@ -7,11 +7,11 @@
  "engine": "InnoDB",
  "field_order": [
   "section_break_cvny",
+  "posting_date",
+  "posting_time",
   "naming_series",
   "column_break_zeuk",
   "company",
-  "posting_date",
-  "posting_time",
   "stock_entry",
   "amended_from",
   "section_break_aapo",
@@ -99,7 +99,7 @@
    "link_fieldname": "custom_pack_fg"
   }
  ],
- "modified": "2026-06-09 16:29:05.745604",
+ "modified": "2026-06-09 16:34:49.874746",
  "modified_by": "Administrator",
  "module": "Packaging Management Application",
  "name": "Pack FG",
