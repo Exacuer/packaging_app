@@ -69,9 +69,9 @@
    "fieldname": "stock_entry",
    "fieldtype": "Link",
    "label": "Stock Entry",
+   "no_copy": 1,
    "options": "Stock Entry",
-   "read_only": 1,
-   "no_copy": 1
+   "read_only": 1
   },
   {
    "fieldname": "section_break_aapo",
@@ -93,8 +93,13 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
- "links": [],
- "modified": "2026-01-29 21:15:00.000000",
+ "links": [
+  {
+   "link_doctype": "Stock Entry",
+   "link_fieldname": "custom_pack_fg"
+  }
+ ],
+ "modified": "2026-06-09 16:29:05.745604",
  "modified_by": "Administrator",
  "module": "Packaging Management Application",
  "name": "Pack FG",
