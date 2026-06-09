@@ -79,3 +79,49 @@ class PackFG(Document):
 			if se.docstatus == 1:
 				se.cancel()
 				frappe.msgprint(f"Stock Entry {se.name} cancelled", alert=True)
+
+
+
+	
+@frappe.whitelist()
+def get_packaging_material_details(item_code):
+	return get_packaging_material_data(item_code)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_item_packaging_material(
+	doctype,
+	txt,
+	searchfield,
+	start,
+	page_len,
+	filters
+):
+	item_code = filters.get("item_code")
+
+	data = get_packaging_material_data(item_code)
+
+	return [
+		(
+			d["item"],
+			d["packing_item_name"]
+		)
+		for d in data
+	]
+
+def get_packaging_material_data(item_code):
+	return frappe.get_all(
+		"Packing Material Details",
+		filters={
+			"parent": item_code,
+			"parenttype": "Item",
+		},
+		fields=[
+			"item",
+			"packing_item_name",
+			"filling_capacity",
+			"uom_sales",
+			"weight_when_empty",
+		],
+	)

@@ -7,12 +7,30 @@ frappe.ui.form.on("Pack FG", {
 	},
 
 	refresh(frm) {
+		if(frm.doc.packing_items && frm.doc.packing_items.length > 0){
+			frm.set_df_property('packing_items', 'cannot_add_rows', true);
+		}
 		if (!frm.doc.posting_date) {
 			frm.set_value("posting_date", frappe.datetime.get_today());
 		}
 		if (!frm.doc.posting_time) {
 			frm.set_value("posting_time", frappe.datetime.now_time());
 		}
+		frm.set_query("item_code", "packed_fg_items", function(doc, cdt, cdn) {
+
+			let source_item = null;
+
+			if (doc.packing_items?.length) {
+				source_item = doc.packing_items[0].item_code;
+			}
+
+			return {
+				query: "packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_item_packaging_material",
+				filters: {
+					item_code: source_item
+				}
+			};
+		});
 	},
 
 	validate(frm) {
@@ -35,6 +53,18 @@ frappe.ui.form.on("Pack FG", {
 });
 
 frappe.ui.form.on("Pack FG Item Source", {
+	packing_items_add(frm, cdt, cdn) {
+		if(frm.doc.packing_items && frm.doc.packing_items.length > 0){
+			frm.set_df_property('packing_items', 'cannot_add_rows', true);
+		}
+	},
+	packing_items_remove(frm, cdt, cdn) {
+		if(frm.doc.packing_items && frm.doc.packing_items.length === 0){
+			frm.set_df_property('packing_items', 'cannot_add_rows', false);
+		}
+		frm.clear_table("packed_fg_items");
+		frm.refresh_field("packed_fg_items");
+	},
 	add_serial_batch_bundle(frm, cdt, cdn) {
 		let child = locals[cdt][cdn];
 
@@ -92,33 +122,34 @@ frappe.ui.form.on("Pack FG Item Source", {
 		if (row.serial_and_batch_bundle) {
 			frappe.model.set_value(cdt, cdn, "serial_and_batch_bundle", "");
 		}
+// Discard for different requirements
 
-		frappe.db.get_doc("Item", row.item_code).then((itemDoc) => {
-			console.log(
-				"Fetched item details for",
-				row.item_code,
-				itemDoc.custom_packing_material_details
-			);
+		// frappe.db.get_doc("Item", row.item_code).then((itemDoc) => {
+		// 	console.log(
+		// 		"Fetched item details for",
+		// 		row.item_code,
+		// 		itemDoc.custom_packing_material_details
+		// 	);
 
-			if (itemDoc.custom_packing_material_details?.length) {
+		// 	if (itemDoc.custom_packing_material_details?.length) {
 
-				// Optional: clear existing rows first
-				frm.clear_table("packed_fg_items");
+		// 		// Optional: clear existing rows first
+		// 		frm.clear_table("packed_fg_items");
 
-				itemDoc.custom_packing_material_details.forEach((packingDetail) => {
-					console.log("Packing Detail:", packingDetail);
+		// 		itemDoc.custom_packing_material_details.forEach((packingDetail) => {
+		// 			console.log("Packing Detail:", packingDetail);
 
-					let packing_row = frm.add_child("packed_fg_items");
-					packing_row.item_code = packingDetail.item;
-					packing_row.filling_capacity = packingDetail.filling_capacity;
+		// 			let packing_row = frm.add_child("packed_fg_items");
+		// 			packing_row.item_code = packingDetail.item;
+		// 			packing_row.filling_capacity = packingDetail.filling_capacity;
 
-					// Add other fields if required
-					// packing_row.uom = packingDetail.uom;
-				});
+		// 			// Add other fields if required
+		// 			// packing_row.uom = packingDetail.uom;
+		// 		});
 
-				frm.refresh_field("packed_fg_items");
-			}
-		});
+		// 		frm.refresh_field("packed_fg_items");
+		// 	}
+		// });
 	},
 
 	source_warehouse(frm, cdt, cdn) {
@@ -126,6 +157,10 @@ frappe.ui.form.on("Pack FG Item Source", {
 		if (child.serial_and_batch_bundle) {
 			frappe.model.set_value(cdt, cdn, "serial_and_batch_bundle", "");
 		}
+		for(let i = 0; i < frm.doc.packed_fg_items.length; i++){
+			frm.doc.packed_fg_items[i].target_warehouse = child.source_warehouse;
+		}
+		frm.refresh_field("packed_fg_items");
 	},
 });
 
@@ -137,6 +172,12 @@ frappe.ui.form.on("Pack FG Item Target", {
 	pack_qty(frm, cdt, cdn) {
 		calculate_packed_qty(frm, cdt, cdn);
 	},
+	packed_fg_items_add(frm, cdt, cdn) {
+		let child = locals[cdt][cdn];
+		if(frm.doc.packing_items && frm.doc.packing_items.length > 0){
+			child.target_warehouse = frm.doc.packing_items[0].source_warehouse;
+		}
+	}
 });
 
 function calculate_packed_qty(frm, cdt, cdn) {

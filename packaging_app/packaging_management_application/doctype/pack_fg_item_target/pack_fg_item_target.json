@@ -24,6 +24,7 @@
   },
   {
    "columns": 1,
+   "fetch_from": "item_code.custom_filling_capacity",
    "fieldname": "filling_capacity",
    "fieldtype": "Float",
    "in_list_view": 1,
@@ -58,7 +59,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-01-29 20:15:43.787719",
+ "modified": "2026-06-09 11:07:02.840904",
  "modified_by": "Administrator",
  "module": "Packaging Management Application",
  "name": "Pack FG Item Target",
