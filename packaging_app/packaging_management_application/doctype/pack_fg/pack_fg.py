@@ -53,14 +53,20 @@ class PackFG(Document):
 			item.qty = flt(item.filling_capacity) * flt(item.pack_qty)
 
 	def sync_packed_fg_batches(self):
-		"""Set packed row batch ID from selected source batch (alternate format)."""
+		"""Set packed row batch ID when item has batch tracking enabled."""
 		if not self.batch_no:
 			return
 
 		batch_id = alternate_packed_fg_batch_id(self.batch_no)
 		for item in self.packed_fg_items:
-			if item.item_code and not item.batch:
+			if not item.item_code:
+				continue
+
+			has_batch_no = frappe.get_cached_value("Item", item.item_code, "has_batch_no")
+			if has_batch_no and not item.batch:
 				item.batch = batch_id
+			elif not has_batch_no:
+				item.batch = None
 
 	def create_packed_fg_batches(self):
 		"""Ensure Batch records exist for packed rows on save."""
@@ -83,11 +89,13 @@ class PackFG(Document):
 			if not item.item_code:
 				continue
 
-			has_batch_no = frappe.db.get_value("Item", item.item_code, "has_batch_no")
+			has_batch_no = frappe.get_cached_value("Item", item.item_code, "has_batch_no")
 			if has_batch_no and not item.batch:
 				frappe.throw(
 					_("Batch is required for packed item {0}").format(item.item_code)
 				)
+			if not has_batch_no:
+				item.batch = None
 
 	def sync_packing_qty_from_bundle(self):
 		"""Set packing_items qty from serial_and_batch_bundle total (all batch picks)."""
@@ -175,6 +183,7 @@ class PackFG(Document):
 			se.append("items", source_item)
 
 			stock_uom = frappe.get_cached_value("Item", packed_item.item_code, "stock_uom")
+
 			has_batch_no = frappe.get_cached_value("Item", packed_item.item_code, "has_batch_no")
 
 			target_item = {
@@ -186,7 +195,7 @@ class PackFG(Document):
 				"stock_uom": stock_uom,
 				"conversion_factor": 1,
 				"is_finished_item": 1,
-				"use_serial_batch_fields": 1,
+				"use_serial_batch_fields": 0,
 			}
 
 			if has_batch_no:
@@ -203,7 +212,7 @@ class PackFG(Document):
 						)
 					)
 
-				target_item["use_serial_batch_fields"] = 0
+				target_item["batch_no"] = batch_no
 				target_item["serial_and_batch_bundle"] = create_inward_bundle(
 					packed_item, self, pack_qty, batch_no
 				)
@@ -211,6 +220,7 @@ class PackFG(Document):
 			se.append("items", target_item)
 
 			se.insert()
+			link_inward_bundle_to_stock_entry(se)
 			se.submit()
 			stock_entry_names.append(se.name)
 
@@ -371,6 +381,7 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 			continue
 
 		if not frappe.get_cached_value("Item", item_code, "has_batch_no"):
+			rows.append({"name": row.get("name"), "batch": None})
 			continue
 
 		batch_name = create_packed_fg_batch(
@@ -382,6 +393,23 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 		rows.append({"name": row.get("name"), "batch": batch_name})
 
 	return {"packed_batch_id": packed_batch_id, "rows": rows}
+
+
+def link_inward_bundle_to_stock_entry(stock_entry):
+	"""Link inward bundles on finished items to the Stock Entry voucher."""
+	for row in stock_entry.items:
+		if not row.is_finished_item or not row.serial_and_batch_bundle:
+			continue
+
+		frappe.db.set_value(
+			"Serial and Batch Bundle",
+			row.serial_and_batch_bundle,
+			{
+				"voucher_type": "Stock Entry",
+				"voucher_no": stock_entry.name,
+				"voucher_detail_no": row.name,
+			},
+		)
 
 
 def create_inward_bundle(packed_item, pack_fg_doc, pack_qty, batch_no):
