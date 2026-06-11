@@ -12,10 +12,12 @@
   "naming_series",
   "column_break_zeuk",
   "company",
-  "stock_entry",
   "amended_from",
+  "batch_no",
   "section_break_aapo",
   "packing_items",
+  "item_batch_ui",
+  "batch_picked_summary",
   "packed_fg_items"
  ],
  "fields": [
@@ -66,14 +68,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "stock_entry",
-   "fieldtype": "Link",
-   "label": "Stock Entry",
-   "no_copy": 1,
-   "options": "Stock Entry",
-   "read_only": 1
-  },
-  {
    "fieldname": "section_break_aapo",
    "fieldtype": "Section Break"
   },
@@ -86,8 +80,26 @@
   {
    "fieldname": "packed_fg_items",
    "fieldtype": "Table",
-   "label": "Packed FG Items",
+   "label": " ",
    "options": "Pack FG Item Target"
+  },
+  {
+   "depends_on": "eval:doc.batch_no",
+   "fieldname": "batch_no",
+   "fieldtype": "Link",
+   "label": "Batch No",
+   "options": "Batch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_batch_ui",
+   "fieldtype": "HTML",
+   "label": "Batch Selection"
+  },
+  {
+   "fieldname": "batch_picked_summary",
+   "fieldtype": "HTML",
+   "label": " "
   }
  ],
  "grid_page_length": 50,
@@ -99,7 +111,7 @@
    "link_fieldname": "custom_pack_fg"
   }
  ],
- "modified": "2026-06-09 16:34:49.874746",
+ "modified": "2026-06-11 13:57:11.663100",
  "modified_by": "Administrator",
  "module": "Packaging Management Application",
  "name": "Pack FG",
