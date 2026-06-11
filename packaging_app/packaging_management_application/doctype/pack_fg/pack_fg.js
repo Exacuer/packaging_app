@@ -16,6 +16,15 @@ frappe.ui.form.on("Pack FG", {
 		if (!frm.doc.posting_time) {
 			frm.set_value("posting_time", frappe.datetime.now_time());
 		}
+		frm.set_query("batch", "packed_fg_items", function (doc, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			return {
+				filters: {
+					item: row.item_code || "",
+				},
+			};
+		});
+
 		frm.set_query("item_code", "packed_fg_items", function (doc, cdt, cdn) {
 			let source_item = null;
 
@@ -61,12 +70,7 @@ frappe.ui.form.on("Pack FG", {
 		const precision = frappe.defaults.get_default("float_precision") || 3;
 
 		if (flt(pick_qty_from_ui, precision) !== flt(packed_qty, precision)) {
-			frappe.throw(
-				__(
-					"Total Pick Qty ({0}) must equal Total Packed FG Items Qty ({1}) across all packed rows",
-					[flt(pick_qty_from_ui, precision), flt(packed_qty, precision)]
-				)
-			);
+			throw_qty_mismatch_error(frm, pick_qty_from_ui, packed_qty);
 		}
 
 		if (flt(packing_qty, precision) !== flt(packed_qty, precision)) {
@@ -81,12 +85,7 @@ frappe.ui.form.on("Pack FG", {
 				);
 			}
 
-			frappe.throw(
-				__(
-					"Total Pick Qty ({0}) must equal Total Packed FG Items Qty ({1}) across all packed rows",
-					[flt(packing_qty, precision), flt(packed_qty, precision)]
-				)
-			);
+			throw_qty_mismatch_error(frm, packing_qty, packed_qty);
 		}
 	},
 });
@@ -163,6 +162,9 @@ frappe.ui.form.on("Pack FG Item Target", {
 		if (frm.doc.packing_items && frm.doc.packing_items.length > 0) {
 			child.target_warehouse = frm.doc.packing_items[0].source_warehouse;
 		}
+		if (frm.doc.batch_no) {
+			child.batch = alternate_packed_fg_batch_id(frm.doc.batch_no);
+		}
 	},
 
 	item_code(frm, cdt, cdn) {
@@ -180,6 +182,10 @@ frappe.ui.form.on("Pack FG Item Target", {
 			frappe.throw(
 				__("Item {0} is already selected in Packed FG Items", [row.item_code])
 			);
+		}
+
+		if (frm.doc.batch_no && !row.batch) {
+			frappe.model.set_value(cdt, cdn, "batch", alternate_packed_fg_batch_id(frm.doc.batch_no));
 		}
 	},
 
@@ -288,6 +294,144 @@ function get_pick_qty_from_inputs(frm) {
 	return total;
 }
 
+function get_current_picks_from_ui(frm) {
+	const field = frm.get_field("item_batch_ui");
+	const packing_row = get_packing_row(frm);
+	const picks = [];
+
+	if (field) {
+		field.$wrapper.find("tbody tr").each((_, tr) => {
+			const $tr = $(tr);
+			const $input = $tr.find(".batch-pick-qty");
+			const qty = flt($input.val());
+
+			if (qty > 0) {
+				picks.push({
+					batch_no: $tr.data("batch-no"),
+					qty,
+					warehouse: $input.data("warehouse") || packing_row?.source_warehouse,
+				});
+			}
+		});
+	}
+
+	return picks;
+}
+
+function throw_qty_mismatch_error(frm, pick_qty, packed_qty) {
+	const precision = frappe.defaults.get_default("float_precision") || 3;
+	const packing_row = get_packing_row(frm);
+	let message = __(
+		"Total Pick Qty ({0}) must equal Total Packed FG Items Qty ({1}) across all packed rows",
+		[flt(pick_qty, precision), flt(packed_qty, precision)]
+	);
+
+	if (frm.doc.company && packing_row?.item_code) {
+		frappe.call({
+			method:
+				"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_qty_balance_suggestions_api",
+			args: {
+				company: frm.doc.company,
+				item_code: packing_row.item_code,
+				source_warehouse: packing_row.source_warehouse,
+				pick_qty: flt(pick_qty, precision),
+				packed_qty: flt(packed_qty, precision),
+				current_picks: get_current_picks_from_ui(frm),
+				serial_and_batch_bundle: packing_row.serial_and_batch_bundle,
+				posting_date: frm.doc.posting_date,
+				posting_time: frm.doc.posting_time,
+			},
+			async: false,
+			callback(r) {
+				if (r.message?.message) {
+					message = r.message.message;
+				}
+			},
+		});
+	}
+
+	frappe.throw(message);
+}
+
+function render_qty_suggestions_html(suggestions_data) {
+	if (!suggestions_data?.suggestions?.length) {
+		return "";
+	}
+
+	const lines = (suggestions_data.suggestions || [])
+		.map((suggestion) => {
+			if (suggestion.action === "add") {
+				return __(
+					"Add {0} from Batch {1} at {2}",
+					[format_number(suggestion.qty), suggestion.batch_no, suggestion.warehouse]
+				);
+			}
+			return __(
+				"Remove {0} from Batch {1} at {2}",
+				[format_number(suggestion.qty), suggestion.batch_no, suggestion.warehouse]
+			);
+		})
+		.map(
+			(line) =>
+				`<li style="margin-bottom: 4px;">${frappe.utils.escape_html(line)}</li>`
+		)
+		.join("");
+
+	let html = `<ul style="margin: 8px 0 0 18px; padding: 0; font-size: 12px;">${lines}</ul>`;
+
+	if (suggestions_data.unfulfilled) {
+		html += `<div style="margin-top: 6px; font-size: 12px; color: #c62828;">
+			${frappe.utils.escape_html(
+				__(
+					"Could not fully cover {0} using available batches. Check stock in other warehouses or adjust Pack Qty.",
+					[format_number(suggestions_data.unfulfilled)]
+				)
+			)}
+		</div>`;
+	}
+
+	if (suggestions_data.pack_alternative) {
+		html += `<div style="margin-top: 6px; font-size: 12px; color: var(--text-muted, #6c757d);">
+			${frappe.utils.escape_html(suggestions_data.pack_alternative)}
+		</div>`;
+	}
+
+	return html;
+}
+
+function fetch_qty_suggestions(frm, pick_qty, packed_qty, callback) {
+	const precision = frappe.defaults.get_default("float_precision") || 3;
+	const packing_row = get_packing_row(frm);
+
+	if (
+		!frm.doc.company ||
+		!packing_row?.item_code ||
+		flt(pick_qty, precision) === flt(packed_qty, precision)
+	) {
+		callback(null);
+		return;
+	}
+
+	frappe.call({
+		method:
+			"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_qty_balance_suggestions_api",
+		args: {
+			company: frm.doc.company,
+			item_code: packing_row.item_code,
+			source_warehouse: packing_row.source_warehouse,
+			pick_qty: flt(pick_qty, precision),
+			packed_qty: flt(packed_qty, precision),
+			current_picks: get_current_picks_from_ui(frm),
+			serial_and_batch_bundle: packing_row.serial_and_batch_bundle,
+			posting_date: frm.doc.posting_date,
+			posting_time: frm.doc.posting_time,
+		},
+		callback(r) {
+			callback(r.message || null);
+		},
+	});
+}
+
 function get_pick_qty(frm, override_pick) {
 	if (override_pick != null) {
 		return flt(override_pick);
@@ -311,23 +455,70 @@ function get_packed_totals(frm) {
 	return { pack_qty, packed_qty };
 }
 
+function alternate_packed_fg_batch_id(source_batch) {
+	if (!source_batch) {
+		return "";
+	}
+	const batch = String(source_batch);
+	if (batch.includes("/")) {
+		return batch.replace(/\//g, "-");
+	}
+	return batch.replace(/-/g, "/");
+}
+
+function link_packed_fg_batches(frm, source_batch_no) {
+	return frappe.call({
+		method:
+			"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.create_and_link_packed_fg_batches",
+		args: {
+			source_batch_no,
+			packed_items: frm.doc.packed_fg_items || [],
+			pack_fg_name: frm.doc.name,
+		},
+	}).then((r) => {
+		for (const row of r.message?.rows || []) {
+			frappe.model.set_value("Pack FG Item Target", row.name, "batch", row.batch);
+		}
+		frm.refresh_field("packed_fg_items");
+		return r.message;
+	});
+}
+
 function render_qty_stat(label, value, accent) {
+	const tint = `${accent}14`;
 	return `
 		<div class="pack-fg-stat" style="
-			background: var(--fg-color, #fff);
-			border: 1px solid var(--border-color, #d1d8dd);
-			border-left: 3px solid ${accent};
-			border-radius: 6px;
-			padding: 8px 14px;
-			min-width: 120px;
-			text-align: center;
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			padding: 4px 12px 4px 8px;
+			border-radius: 20px;
+			background: ${tint};
+			border: 1px solid ${accent}33;
+			line-height: 1;
 		">
-			<div class="text-muted small" style="margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.03em; font-size: 11px;">
-				${label}
-			</div>
-			<div style="font-size: 16px; font-weight: 600; line-height: 1.2;">
-				${format_number(flt(value))}
-			</div>
+			<span style="
+				width: 6px;
+				height: 6px;
+				border-radius: 50%;
+				background: ${accent};
+				flex-shrink: 0;
+			"></span>
+			<span style="
+				font-size: 10px;
+				font-weight: 600;
+				text-transform: uppercase;
+				letter-spacing: 0.05em;
+				color: var(--text-muted, #6c7680);
+				white-space: nowrap;
+			">${label}</span>
+			<span style="
+				font-size: 14px;
+				font-weight: 700;
+				color: ${accent};
+				font-variant-numeric: tabular-nums;
+				white-space: nowrap;
+			">${format_number(flt(value))}</span>
 		</div>
 	`;
 }
@@ -350,32 +541,59 @@ function update_qty_summary(frm, override_pick) {
 	const balance_text = is_balanced
 		? __("Pick and Pack qty match")
 		: __("Pick and Pack qty do not match");
+	const diff = flt(packed_qty, precision) - flt(pick_qty, precision);
+	const mismatch_hint = !is_balanced
+		? diff > 0
+			? __("Short by {0} — add pick qty from:", [format_number(diff)])
+			: __("Excess of {0} — reduce pick qty from:", [format_number(Math.abs(diff))])
+		: "";
 
-	field.$wrapper.html(`
-		<div class="pack-fg-qty-summary" style="${PACK_FG_SECTION_DIVIDER} padding-bottom: 10px;">
-			<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-				<span style="font-size: 14px; font-weight: 600;">${__("Packed FG Items")}</span>
-				<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
-					${render_qty_stat(__("Pick Qty"), pick_qty, "var(--blue-500, #2490ef)")}
-					${render_qty_stat(__("Pack Qty"), pack_qty, "var(--purple-500, #743ee2)")}
-					${render_qty_stat(__("Packed Qty"), packed_qty, "var(--green-500, #28a745)")}
-					<div title="${balance_text}" style="
-						display: flex;
-						align-items: center;
-						justify-content: center;
-						width: 32px;
-						height: 32px;
-						border-radius: 50%;
-						background: ${balance_color};
-						color: #fff;
-						font-weight: 700;
-						font-size: 14px;
-						flex-shrink: 0;
-					">${balance_icon}</div>
+	const render_summary = (suggestions_html = "") => {
+		field.$wrapper.html(`
+			<div class="pack-fg-qty-summary" style="${PACK_FG_SECTION_DIVIDER} padding-bottom: 8px;">
+				<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+					<span style="font-size: 13px; font-weight: 600; color: var(--text-color, #333);">${__("Packed FG Items")}</span>
+					<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+						${render_qty_stat(__("Pick Qty"), pick_qty, "#2490ef")}
+						${render_qty_stat(__("Pack Qty"), pack_qty, "#743ee2")}
+						${render_qty_stat(__("Packed Qty"), packed_qty, "#28a745")}
+						<span title="${balance_text}" style="
+							display: inline-flex;
+							align-items: center;
+							justify-content: center;
+							width: 20px;
+							height: 20px;
+							border-radius: 50%;
+							background: ${balance_color};
+							color: #fff;
+							font-weight: 700;
+							font-size: 11px;
+							flex-shrink: 0;
+							margin-left: 2px;
+						">${balance_icon}</span>
+					</div>
 				</div>
+				${
+					!is_balanced
+						? `<div style="margin-top: 10px; padding: 10px 12px; border: 1px solid #f0ad4e; border-radius: 6px; background: #fff8e6;">
+							<div style="font-size: 12px; font-weight: 600; color: #8a6d3b; margin-bottom: 4px;">
+								${frappe.utils.escape_html(mismatch_hint)}
+							</div>
+							<div class="pack-fg-qty-suggestions">${suggestions_html}</div>
+						</div>`
+						: ""
+				}
 			</div>
-		</div>
-	`);
+		`);
+	};
+
+	render_summary();
+
+	if (!is_balanced) {
+		fetch_qty_suggestions(frm, pick_qty, packed_qty, (suggestions_data) => {
+			render_summary(render_qty_suggestions_html(suggestions_data));
+		});
+	}
 }
 
 function get_batch_filter_args(frm) {
@@ -735,12 +953,21 @@ function apply_batch_selection(frm, $wrapper) {
 			});
 			frm.set_value("batch_no", primary_batch_no);
 			frm.refresh_field("packing_items");
-			update_qty_summary(frm, total_picked);
-			frappe.show_alert({
-				message: __("Batch bundle {0} applied", [bundle.name]),
-				indicator: "green",
+
+			link_packed_fg_batches(frm, primary_batch_no).then((batch_result) => {
+				update_qty_summary(frm, total_picked);
+				const packed_batch_id = batch_result?.packed_batch_id || "";
+				frappe.show_alert({
+					message: packed_batch_id
+						? __("Batch bundle {0} applied. Packed batch {1} created and linked.", [
+								bundle.name,
+								packed_batch_id,
+							])
+						: __("Batch bundle {0} applied", [bundle.name]),
+					indicator: "green",
+				});
+				render_item_batch_ui(frm);
 			});
-			render_item_batch_ui(frm);
 		},
 	});
 }
