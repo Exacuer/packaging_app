@@ -42,11 +42,19 @@ frappe.ui.form.on("Pack FG", {
 		});
 		setup_batch_section_header(frm);
 		setup_packed_fg_header(frm);
-		render_item_batch_ui(frm);
+		set_default_wip_fg_warehouse(frm).then(() => {
+			apply_default_source_warehouse(frm);
+			render_item_batch_ui(frm);
+			update_pack_fg_form_actions(frm);
+		});
 	},
 
 	company(frm) {
-		render_item_batch_ui(frm);
+		set_default_wip_fg_warehouse(frm).then(() => {
+			apply_default_source_warehouse(frm);
+			render_item_batch_ui(frm);
+			update_pack_fg_form_actions(frm);
+		});
 	},
 
 	posting_date(frm) {
@@ -58,6 +66,10 @@ frappe.ui.form.on("Pack FG", {
 	},
 
 	validate(frm) {
+		if (frm.doc.packing_items?.length && !are_batches_applied(frm)) {
+			frappe.throw(__("Please click Apply Batches before save."));
+		}
+
 		const packing_qty = (frm.doc.packing_items || []).reduce(
 			(sum, item) => sum + flt(item.qty),
 			0
@@ -95,6 +107,7 @@ frappe.ui.form.on("Pack FG Item Source", {
 		if (frm.doc.packing_items && frm.doc.packing_items.length > 0) {
 			frm.set_df_property("packing_items", "cannot_add_rows", true);
 		}
+		apply_default_source_warehouse(frm);
 		render_item_batch_ui(frm);
 	},
 
@@ -197,6 +210,22 @@ function get_packing_row(frm) {
 	return (frm.doc.packing_items || [])[0];
 }
 
+function are_batches_applied(frm) {
+	const packing_row = get_packing_row(frm);
+	return !!(packing_row?.serial_and_batch_bundle && frm.doc.batch_no);
+}
+
+function update_pack_fg_form_actions(frm) {
+	if (frm.doc.docstatus !== 0) {
+		return;
+	}
+
+	const show_save = are_batches_applied(frm);
+	if (frm.page.btn_primary) {
+		frm.page.btn_primary.toggle(show_save);
+	}
+}
+
 function get_used_packed_fg_items(doc, current_cdn) {
 	return (doc.packed_fg_items || [])
 		.filter((row) => row.item_code && row.name !== current_cdn)
@@ -249,30 +278,20 @@ function render_section_header(title, filters_html) {
 	`;
 }
 
-function render_batch_filter_banner(packing_row, company) {
-	if (packing_row?.item_code) {
-		const item_html = render_status_chip(packing_row.item_code, true);
-		const warehouse_html = render_status_chip(
-			packing_row.source_warehouse || __("Any"),
-			!!packing_row.source_warehouse
-		);
+function render_batch_filter_banner(packing_row, company, default_warehouse) {
+	const warehouse = packing_row?.source_warehouse || default_warehouse;
+	const item_label = packing_row?.item_code || __("Finished Goods");
+	const has_item = !!packing_row?.item_code;
 
-		return render_section_header(
-			__("Batch Selection"),
-			`<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
-				<span class="text-muted">${__("Item")}:</span> ${item_html}
-				<span class="text-muted">${__("Warehouse")}:</span> ${warehouse_html}
-			</div>`
-		);
-	}
+	const item_html = render_status_chip(item_label, has_item || true);
+	const warehouse_html = render_status_chip(warehouse || __("Any"), !!warehouse);
 
-	const company_chip = render_status_chip(company, !!company);
 	return render_section_header(
 		__("Batch Selection"),
 		`<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
-			<span class="text-muted">${__("Company")}:</span> ${company_chip}
-			<span class="text-muted">${__("Item")}:</span> ${render_status_chip(null, false)}
-			<span class="text-muted">${__("Warehouse")}:</span> ${render_status_chip(null, false)}
+			<span class="text-muted">${__("Company")}:</span> ${render_status_chip(company, !!company)}
+			<span class="text-muted">${has_item ? __("Item") : __("Item Group")}:</span> ${item_html}
+			<span class="text-muted">${__("Warehouse")}:</span> ${warehouse_html}
 		</div>`
 	);
 }
@@ -470,14 +489,17 @@ function set_packed_row_batch_if_enabled(frm, cdt, cdn) {
 
 	frappe.db.get_value("Item", row.item_code, "has_batch_no", (r) => {
 		if (r.message?.has_batch_no) {
-			frappe.model.set_value(
-				cdt,
-				cdn,
-				"batch",
-				alternate_packed_fg_batch_id(frm.doc.batch_no)
-			);
+			frappe.db.get_value("Batch", frm.doc.batch_no, "custom_density", (batch_r) => {
+				frappe.model.set_value(cdt, cdn, {
+					batch: alternate_packed_fg_batch_id(frm.doc.batch_no),
+					density: flt(batch_r.message?.custom_density),
+				});
+			});
 		} else {
-			frappe.model.set_value(cdt, cdn, "batch", "");
+			frappe.model.set_value(cdt, cdn, {
+				batch: "",
+				density: 0,
+			});
 		}
 	});
 }
@@ -493,7 +515,10 @@ function link_packed_fg_batches(frm, source_batch_no) {
 		},
 	}).then((r) => {
 		for (const row of r.message?.rows || []) {
-			frappe.model.set_value("Pack FG Item Target", row.name, "batch", row.batch || "");
+			frappe.model.set_value("Pack FG Item Target", row.name, {
+				batch: row.batch || "",
+				density: row.density != null ? flt(row.density) : 0,
+			});
 		}
 		frm.refresh_field("packed_fg_items");
 		return r.message;
@@ -617,10 +642,43 @@ function get_batch_filter_args(frm) {
 	return {
 		company: frm.doc.company,
 		item_code: packing_row?.item_code || null,
-		warehouse: packing_row?.source_warehouse || null,
+		warehouse: packing_row?.source_warehouse || frm._default_wip_fg_warehouse || null,
 		posting_date: frm.doc.posting_date,
 		posting_time: frm.doc.posting_time,
+		product_group: "Finished Goods",
 	};
+}
+
+function set_default_wip_fg_warehouse(frm) {
+	if (!frm.doc.company) {
+		frm._default_wip_fg_warehouse = null;
+		return Promise.resolve(null);
+	}
+
+	return frappe
+		.call({
+			method:
+				"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_default_wip_fg_warehouse_api",
+			args: { company: frm.doc.company },
+		})
+		.then((r) => {
+			frm._default_wip_fg_warehouse = r.message || null;
+			return frm._default_wip_fg_warehouse;
+		});
+}
+
+function apply_default_source_warehouse(frm) {
+	const packing_row = get_packing_row(frm);
+	if (!packing_row || packing_row.source_warehouse || !frm._default_wip_fg_warehouse) {
+		return;
+	}
+
+	frappe.model.set_value(
+		packing_row.doctype,
+		packing_row.name,
+		"source_warehouse",
+		frm._default_wip_fg_warehouse
+	);
 }
 
 function get_picked_qty_map(frm) {
@@ -658,7 +716,7 @@ function render_item_batch_ui(frm) {
 	if (!frm.doc.company) {
 		field.$wrapper.html(`
 			<div class="pack-fg-batch-ui" style="${PACK_FG_SECTION_DIVIDER}">
-				${render_batch_filter_banner(null, null)}
+				${render_batch_filter_banner(null, null, null)}
 				<div style="padding: 12px; border: 1px solid var(--border-color, #d1d8dd); border-radius: 6px; background: #ffebee; color: #c62828; font-size: 13px;">
 					${__("Please select a Company to load batches.")}
 				</div>
@@ -674,7 +732,7 @@ function render_item_batch_ui(frm) {
 
 	field.$wrapper.html(`
 		<div class="pack-fg-batch-ui" style="${PACK_FG_SECTION_DIVIDER}">
-			${render_batch_filter_banner(packing_row, frm.doc.company)}
+			${render_batch_filter_banner(packing_row, frm.doc.company, frm._default_wip_fg_warehouse)}
 			<div class="text-muted small" style="padding: 8px 0;">${__("Loading batches...")}</div>
 		</div>
 	`);
@@ -686,7 +744,11 @@ function render_item_batch_ui(frm) {
 			callback: (r) => {
 				const batches = r.message || [];
 				let html = `<div class="pack-fg-batch-ui" style="${PACK_FG_SECTION_DIVIDER}">`;
-				html += render_batch_filter_banner(packing_row, frm.doc.company);
+				html += render_batch_filter_banner(
+					packing_row,
+					frm.doc.company,
+					frm._default_wip_fg_warehouse
+				);
 
 				if (!packing_row?.item_code) {
 					html += `<div style="padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border-color, #d1d8dd); border-radius: 6px; background: var(--subtle-accent, #f8f9fa); color: var(--text-muted, #6c757d); font-size: 12px;">
@@ -711,6 +773,7 @@ function render_item_batch_ui(frm) {
 							<th style="font-size: 12px;">${__("Item")}</th>
 							<th style="font-size: 12px;">${__("Warehouse")}</th>
 							<th class="text-right" style="font-size: 12px;">${__("Available Qty")}</th>
+							<th class="text-right" style="font-size: 12px;">${__("Density")}</th>
 							<th class="text-right" style="font-size: 12px;">${__("Pick Qty")}</th>
 							<th class="text-center" style="font-size: 12px;">${__("Select Batch")}</th>
 						</tr>
@@ -733,6 +796,7 @@ function render_item_batch_ui(frm) {
 						}</td>
 						<td>${frappe.utils.escape_html(batch.warehouse || "")}</td>
 						<td class="text-right">${format_number(batch.available_qty)}</td>
+						<td class="text-right">${format_number(batch.density)}</td>
 						<td class="text-right">
 							<input type="number" class="form-control input-sm batch-pick-qty text-right"
 								min="0" max="${batch.available_qty}" step="any"
@@ -809,6 +873,8 @@ function render_item_batch_ui(frm) {
 						apply_batch_selection(frm, field.$wrapper);
 					});
 				}
+
+				update_pack_fg_form_actions(frm);
 			},
 		});
 	});
@@ -983,6 +1049,7 @@ function apply_batch_selection(frm, $wrapper) {
 					indicator: "green",
 				});
 				render_item_batch_ui(frm);
+				update_pack_fg_form_actions(frm);
 			});
 		},
 	});
