@@ -10,8 +10,6 @@
   "source_warehouse",
   "qty",
   "uom",
-  "column_break_zwwa",
-  "add_serial_batch_bundle",
   "serial_and_batch_bundle"
  ],
  "fields": [
@@ -49,30 +47,20 @@
    "read_only": 1
   },
   {
-   "fieldname": "column_break_zwwa",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "add_serial_batch_bundle",
-   "fieldtype": "Button",
-   "in_list_view": 1,
-   "label": "add_serial_batch_bundle"
-  },
-  {
    "fieldname": "serial_and_batch_bundle",
    "fieldtype": "Link",
-   "label": "serial_and_batch_bundle",
+   "label": "Serial and Batch Bundle",
    "link_filters": "[[\"Serial and Batch Bundle\",\"docstatus\",\"=\",\"0\"]]",
    "no_copy": 1,
    "options": "Serial and Batch Bundle",
-   "reqd": 1
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-06-09 13:06:45.798371",
+ "modified": "2026-06-11 14:46:54.800311",
  "modified_by": "Administrator",
  "module": "Packaging Management Application",
  "name": "Pack FG Item Source",
