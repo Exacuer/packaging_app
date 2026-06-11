@@ -58,6 +58,7 @@ class PackFG(Document):
 			return
 
 		batch_id = alternate_packed_fg_batch_id(self.batch_no)
+		source_density = get_batch_density(self.batch_no)
 		for item in self.packed_fg_items:
 			if not item.item_code:
 				continue
@@ -65,8 +66,12 @@ class PackFG(Document):
 			has_batch_no = frappe.get_cached_value("Item", item.item_code, "has_batch_no")
 			if has_batch_no and not item.batch:
 				item.batch = batch_id
+				item.density = source_density
+			elif has_batch_no:
+				item.density = source_density
 			elif not has_batch_no:
 				item.batch = None
+				item.density = None
 
 	def create_packed_fg_batches(self):
 		"""Ensure Batch records exist for packed rows on save."""
@@ -96,6 +101,7 @@ class PackFG(Document):
 				)
 			if not has_batch_no:
 				item.batch = None
+				item.density = None
 
 	def sync_packing_qty_from_bundle(self):
 		"""Set packing_items qty from serial_and_batch_bundle total (all batch picks)."""
@@ -338,17 +344,27 @@ def create_packed_fg_batch(batch_no, item_code, pack_fg_doc, source_batch_no=Non
 		{
 			"item": item_code,
 			"batch_id": batch_no,
-			"reference_doctype": "Pack FG",
-			"reference_name": pack_fg_name,
 		}
 	)
 
+	if pack_fg_name and frappe.db.exists("Pack FG", pack_fg_name):
+		batch_data.update(
+			{
+				"reference_doctype": "Pack FG",
+				"reference_name": pack_fg_name,
+			}
+		)
+
 	resolved_source_batch = resolve_source_batch_no(source_batch_no)
 	if resolved_source_batch:
+		source_fields = ["expiry_date", "manufacturing_date"]
+		if frappe.db.has_column("Batch", "custom_density"):
+			source_fields.append("custom_density")
+
 		source_batch = frappe.db.get_value(
 			"Batch",
 			resolved_source_batch,
-			["expiry_date", "manufacturing_date"],
+			source_fields,
 			as_dict=True,
 		)
 		if source_batch:
@@ -358,8 +374,24 @@ def create_packed_fg_batch(batch_no, item_code, pack_fg_doc, source_batch_no=Non
 					"manufacturing_date": source_batch.manufacturing_date,
 				}
 			)
+			if source_batch.get("custom_density") is not None:
+				batch_data["custom_density"] = source_batch.custom_density
 
 	return make_batch(batch_data)
+
+
+def get_batch_doc_fields():
+	fields = ["name", "item", "expiry_date"]
+	if frappe.db.has_column("Batch", "custom_density"):
+		fields.append("custom_density")
+	return fields
+
+
+def get_batch_density(batch_no):
+	if not batch_no or not frappe.db.has_column("Batch", "custom_density"):
+		return None
+
+	return flt(frappe.db.get_value("Batch", batch_no, "custom_density"))
 
 
 @frappe.whitelist()
@@ -373,6 +405,7 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 		frappe.throw(_("Source batch is required"))
 
 	pack_fg_doc = frappe._dict({"name": pack_fg_name}) if pack_fg_name else frappe._dict()
+	source_density = get_batch_density(source_batch_no)
 	rows = []
 
 	for row in packed_items or []:
@@ -381,7 +414,7 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 			continue
 
 		if not frappe.get_cached_value("Item", item_code, "has_batch_no"):
-			rows.append({"name": row.get("name"), "batch": None})
+			rows.append({"name": row.get("name"), "batch": None, "density": None})
 			continue
 
 		batch_name = create_packed_fg_batch(
@@ -390,9 +423,13 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 			pack_fg_doc=pack_fg_doc,
 			source_batch_no=source_batch_no,
 		)
-		rows.append({"name": row.get("name"), "batch": batch_name})
+		rows.append({"name": row.get("name"), "batch": batch_name, "density": source_density})
 
-	return {"packed_batch_id": packed_batch_id, "rows": rows}
+	return {
+		"packed_batch_id": packed_batch_id,
+		"source_density": source_density,
+		"rows": rows,
+	}
 
 
 def link_inward_bundle_to_stock_entry(stock_entry):
@@ -846,12 +883,57 @@ def get_packaging_material_data(item_code):
 	)
 
 
+def get_default_wip_fg_warehouse(company):
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	if not abbr:
+		return None
+
+	warehouse = f"WIP FG - {abbr}"
+	return warehouse if frappe.db.exists("Warehouse", warehouse) else None
+
+
+def filter_batches_by_product_group(batches, product_group="Finished Goods"):
+	if not product_group or not batches:
+		return batches
+
+	if not frappe.db.has_column("Item", "custom_product_group"):
+		return batches
+
+	item_codes = list({batch.get("item_code") for batch in batches if batch.get("item_code")})
+	if not item_codes:
+		return batches
+
+	allowed_items = set(
+		frappe.get_all(
+			"Item",
+			filters={"name": ["in", item_codes], "custom_product_group": product_group},
+			pluck="name",
+		)
+	)
+	return [batch for batch in batches if batch.get("item_code") in allowed_items]
+
+
 @frappe.whitelist()
-def get_active_batches(company, item_code=None, warehouse=None, posting_date=None, posting_time=None):
+def get_default_wip_fg_warehouse_api(company):
+	return get_default_wip_fg_warehouse(company)
+
+
+@frappe.whitelist()
+def get_active_batches(
+	company,
+	item_code=None,
+	warehouse=None,
+	posting_date=None,
+	posting_time=None,
+	product_group="Finished Goods",
+):
 	from erpnext.stock.doctype.serial_and_batch_bundle.serial_and_batch_bundle import get_auto_batch_nos
 
 	if not company:
 		frappe.throw(_("Company is required"))
+
+	if not warehouse:
+		warehouse = get_default_wip_fg_warehouse(company)
 
 	kwargs = frappe._dict(
 		{
@@ -877,7 +959,7 @@ def get_active_batches(company, item_code=None, warehouse=None, posting_date=Non
 		for d in frappe.get_all(
 			"Batch",
 			filters={"name": ["in", batch_nos]},
-			fields=["name", "item", "expiry_date"],
+			fields=get_batch_doc_fields(),
 		)
 	}
 
@@ -908,7 +990,8 @@ def get_active_batches(company, item_code=None, warehouse=None, posting_date=Non
 				"warehouse": batch.warehouse,
 				"available_qty": flt(batch.qty),
 				"expiry_date": batch.expiry_date or batch_doc.expiry_date,
+				"density": flt(batch_doc.get("custom_density")),
 			}
 		)
 
-	return result
+	return filter_batches_by_product_group(result, product_group)
