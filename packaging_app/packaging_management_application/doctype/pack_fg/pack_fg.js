@@ -162,9 +162,7 @@ frappe.ui.form.on("Pack FG Item Target", {
 		if (frm.doc.packing_items && frm.doc.packing_items.length > 0) {
 			child.target_warehouse = frm.doc.packing_items[0].source_warehouse;
 		}
-		if (frm.doc.batch_no) {
-			child.batch = alternate_packed_fg_batch_id(frm.doc.batch_no);
-		}
+		set_packed_row_batch_if_enabled(frm, cdt, cdn);
 	},
 
 	item_code(frm, cdt, cdn) {
@@ -184,9 +182,7 @@ frappe.ui.form.on("Pack FG Item Target", {
 			);
 		}
 
-		if (frm.doc.batch_no && !row.batch) {
-			frappe.model.set_value(cdt, cdn, "batch", alternate_packed_fg_batch_id(frm.doc.batch_no));
-		}
+		set_packed_row_batch_if_enabled(frm, cdt, cdn);
 	},
 
 });
@@ -466,6 +462,26 @@ function alternate_packed_fg_batch_id(source_batch) {
 	return batch.replace(/-/g, "/");
 }
 
+function set_packed_row_batch_if_enabled(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	if (!row.item_code || !frm.doc.batch_no) {
+		return;
+	}
+
+	frappe.db.get_value("Item", row.item_code, "has_batch_no", (r) => {
+		if (r.message?.has_batch_no) {
+			frappe.model.set_value(
+				cdt,
+				cdn,
+				"batch",
+				alternate_packed_fg_batch_id(frm.doc.batch_no)
+			);
+		} else {
+			frappe.model.set_value(cdt, cdn, "batch", "");
+		}
+	});
+}
+
 function link_packed_fg_batches(frm, source_batch_no) {
 	return frappe.call({
 		method:
@@ -477,7 +493,7 @@ function link_packed_fg_batches(frm, source_batch_no) {
 		},
 	}).then((r) => {
 		for (const row of r.message?.rows || []) {
-			frappe.model.set_value("Pack FG Item Target", row.name, "batch", row.batch);
+			frappe.model.set_value("Pack FG Item Target", row.name, "batch", row.batch || "");
 		}
 		frm.refresh_field("packed_fg_items");
 		return r.message;

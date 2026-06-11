@@ -61,14 +61,15 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Batch",
-   "options": "Batch"
+   "options": "Batch",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-06-11 16:34:24.165139",
+ "modified": "2026-06-11 17:37:08.686233",
  "modified_by": "Administrator",
  "module": "Packaging Management Application",
  "name": "Pack FG Item Target",
