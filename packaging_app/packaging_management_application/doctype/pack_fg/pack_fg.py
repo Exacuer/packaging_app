@@ -57,7 +57,6 @@ class PackFG(Document):
 		if not self.batch_no:
 			return
 
-		batch_id = alternate_packed_fg_batch_id(self.batch_no)
 		source_density = get_batch_density(self.batch_no)
 		for item in self.packed_fg_items:
 			if not item.item_code:
@@ -65,7 +64,7 @@ class PackFG(Document):
 
 			has_batch_no = frappe.get_cached_value("Item", item.item_code, "has_batch_no")
 			if has_batch_no and not item.batch:
-				item.batch = batch_id
+				item.batch = resolve_packed_fg_batch_id(self.batch_no, item.item_code)
 				item.density = source_density
 			elif has_batch_no:
 				item.density = source_density
@@ -82,8 +81,9 @@ class PackFG(Document):
 			if not frappe.get_cached_value("Item", item.item_code, "has_batch_no"):
 				continue
 
+			batch_no = get_packed_fg_batch_id(self.batch_no, item.item_code, item.batch)
 			item.batch = create_packed_fg_batch(
-				batch_no=item.batch,
+				batch_no=batch_no,
 				item_code=item.item_code,
 				pack_fg_doc=self,
 				source_batch_no=self.batch_no,
@@ -301,15 +301,106 @@ def allocate_bundle_qty_from_pool(pool, qty_needed):
 	return entries, updated_pool
 
 
-def alternate_packed_fg_batch_id(source_batch):
-	"""Swap batch ID format: dash to slash, or slash to dash."""
-	if not source_batch:
-		return ""
+PACKED_FG_BATCH_SEPARATORS = ("/", ".", "\\", "_", "~", "|", ":")
+PACKED_FG_BATCH_SUFFIX_LIMIT = 99
 
-	source_batch = str(source_batch)
-	if "/" in source_batch:
-		return source_batch.replace("/", "-")
-	return source_batch.replace("-", "/")
+
+def _split_batch_segments(source_batch):
+	"""Split a batch ID on hyphen or slash separators."""
+	normalized = str(source_batch).replace("/", "-")
+	if "-" in normalized:
+		return normalized.split("-")
+	return [normalized]
+
+
+def _yield_unique_candidate(candidate, seen):
+	if candidate and candidate not in seen:
+		seen.add(candidate)
+		return candidate
+	return None
+
+
+def _is_packed_fg_batch_available(batch_no, item_code):
+	if not frappe.db.exists("Batch", batch_no):
+		return True
+	return frappe.db.get_value("Batch", batch_no, "item") == item_code
+
+
+def generate_packed_fg_batch_candidates(source_batch):
+	"""Yield alternate packed FG batch IDs using different separators."""
+	source_batch = str(source_batch or "").strip()
+	if not source_batch:
+		return
+
+	segments = _split_batch_segments(source_batch)
+	if len(segments) <= 1:
+		yield source_batch
+		return
+
+	source_sep = "/" if "/" in source_batch else "-"
+	seen = set()
+
+	def add_candidate(sep):
+		candidate = _yield_unique_candidate(sep.join(segments), seen)
+		if candidate:
+			yield candidate
+
+		double_sep = sep * 2
+		if double_sep != sep:
+			candidate = _yield_unique_candidate(double_sep.join(segments), seen)
+			if candidate:
+				yield candidate
+
+	primary_sep = "/" if source_sep == "-" else "-"
+	yield from add_candidate(primary_sep)
+
+	for sep in PACKED_FG_BATCH_SEPARATORS:
+		if sep == source_sep:
+			continue
+		yield from add_candidate(sep)
+
+	if source_sep != "-":
+		candidate = _yield_unique_candidate("-".join(segments), seen)
+		if candidate:
+			yield candidate
+
+
+def generate_packed_fg_batch_suffix_candidates(base_batch_id):
+	"""Yield suffixed batch IDs as a last-resort unique fallback."""
+	for suffix in range(1, PACKED_FG_BATCH_SUFFIX_LIMIT + 1):
+		yield f"{base_batch_id}-P{suffix}"
+
+
+def alternate_packed_fg_batch_id(source_batch):
+	"""Return the primary alternate batch ID format (dash ↔ slash)."""
+	for candidate in generate_packed_fg_batch_candidates(source_batch):
+		return candidate
+	return ""
+
+
+def resolve_packed_fg_batch_id(source_batch, item_code):
+	"""Pick the first batch ID that is unused or already belongs to item_code."""
+	for candidate in generate_packed_fg_batch_candidates(source_batch):
+		if _is_packed_fg_batch_available(candidate, item_code):
+			return candidate
+
+	base_batch_id = alternate_packed_fg_batch_id(source_batch) or str(source_batch)
+	for candidate in generate_packed_fg_batch_suffix_candidates(base_batch_id):
+		if _is_packed_fg_batch_available(candidate, item_code):
+			return candidate
+
+	frappe.throw(
+		_("No available batch name found for source batch {0}").format(source_batch)
+	)
+
+
+def get_packed_fg_batch_id(source_batch_no, item_code, current_batch=None):
+	"""Reuse current batch when valid; otherwise resolve an available alternate ID."""
+	if current_batch and frappe.db.exists("Batch", current_batch):
+		if frappe.db.get_value("Batch", current_batch, "item") == item_code:
+			return current_batch
+
+	return resolve_packed_fg_batch_id(source_batch_no, item_code)
 
 
 def resolve_source_batch_no(source_batch_no):
@@ -400,13 +491,13 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 	if isinstance(packed_items, str):
 		packed_items = frappe.parse_json(packed_items)
 
-	packed_batch_id = alternate_packed_fg_batch_id(source_batch_no)
-	if not packed_batch_id:
+	if not source_batch_no:
 		frappe.throw(_("Source batch is required"))
 
 	pack_fg_doc = frappe._dict({"name": pack_fg_name}) if pack_fg_name else frappe._dict()
 	source_density = get_batch_density(source_batch_no)
 	rows = []
+	packed_batch_id = None
 
 	for row in packed_items or []:
 		item_code = row.get("item_code")
@@ -417,16 +508,19 @@ def create_and_link_packed_fg_batches(source_batch_no, packed_items, pack_fg_nam
 			rows.append({"name": row.get("name"), "batch": None, "density": None})
 			continue
 
+		batch_no = get_packed_fg_batch_id(source_batch_no, item_code, row.get("batch"))
 		batch_name = create_packed_fg_batch(
-			batch_no=packed_batch_id,
+			batch_no=batch_no,
 			item_code=item_code,
 			pack_fg_doc=pack_fg_doc,
 			source_batch_no=source_batch_no,
 		)
+		if packed_batch_id is None:
+			packed_batch_id = batch_name
 		rows.append({"name": row.get("name"), "batch": batch_name, "density": source_density})
 
 	return {
-		"packed_batch_id": packed_batch_id,
+		"packed_batch_id": packed_batch_id or "",
 		"source_density": source_density,
 		"rows": rows,
 	}

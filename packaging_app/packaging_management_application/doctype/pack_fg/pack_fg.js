@@ -510,15 +510,71 @@ function get_packed_totals(frm) {
 	return { pack_qty, packed_qty };
 }
 
+const PACKED_FG_BATCH_SEPARATORS = ["/", ".", "\\", "_", "~", "|", ":"];
+
+function split_batch_segments(source_batch) {
+	const normalized = String(source_batch).replace(/\//g, "-");
+	if (normalized.includes("-")) {
+		return normalized.split("-");
+	}
+	return [normalized];
+}
+
+function add_separator_candidates(candidates, seen, segments, sep) {
+	const single = segments.join(sep);
+	if (!seen.has(single)) {
+		seen.add(single);
+		candidates.push(single);
+	}
+
+	const double_sep = sep + sep;
+	if (double_sep !== sep) {
+		const doubled = segments.join(double_sep);
+		if (!seen.has(doubled)) {
+			seen.add(doubled);
+			candidates.push(doubled);
+		}
+	}
+}
+
+function generate_packed_fg_batch_candidates(source_batch) {
+	const batch = String(source_batch || "").trim();
+	if (!batch) {
+		return [];
+	}
+
+	const segments = split_batch_segments(batch);
+	if (segments.length <= 1) {
+		return [batch];
+	}
+
+	const source_sep = batch.includes("/") ? "/" : "-";
+	const seen = new Set();
+	const candidates = [];
+
+	const primary_sep = source_sep === "-" ? "/" : "-";
+	add_separator_candidates(candidates, seen, segments, primary_sep);
+
+	for (const sep of PACKED_FG_BATCH_SEPARATORS) {
+		if (sep === source_sep) {
+			continue;
+		}
+		add_separator_candidates(candidates, seen, segments, sep);
+	}
+
+	if (source_sep !== "-") {
+		const fallback = segments.join("-");
+		if (!seen.has(fallback)) {
+			seen.add(fallback);
+			candidates.push(fallback);
+		}
+	}
+
+	return candidates;
+}
+
 function alternate_packed_fg_batch_id(source_batch) {
-	if (!source_batch) {
-		return "";
-	}
-	const batch = String(source_batch);
-	if (batch.includes("/")) {
-		return batch.replace(/\//g, "-");
-	}
-	return batch.replace(/-/g, "/");
+	return generate_packed_fg_batch_candidates(source_batch)[0] || "";
 }
 
 function set_packed_row_batch_if_enabled(frm, cdt, cdn) {
