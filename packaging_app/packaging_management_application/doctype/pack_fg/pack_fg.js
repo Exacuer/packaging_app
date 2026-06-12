@@ -168,6 +168,7 @@ frappe.ui.form.on("Pack FG Item Target", {
 
 	packed_fg_items_remove(frm) {
 		update_qty_summary(frm);
+		setup_apply_batches_button(frm);
 	},
 
 	packed_fg_items_add(frm, cdt, cdn) {
@@ -176,6 +177,7 @@ frappe.ui.form.on("Pack FG Item Target", {
 			child.target_warehouse = frm.doc.packing_items[0].source_warehouse;
 		}
 		set_packed_row_batch_if_enabled(frm, cdt, cdn);
+		setup_apply_batches_button(frm);
 	},
 
 	item_code(frm, cdt, cdn) {
@@ -251,6 +253,44 @@ function setup_packed_fg_header(frm) {
 		summary_field.$wrapper.closest(".frappe-control").find(".control-label").hide();
 	}
 	update_qty_summary(frm);
+	setup_apply_batches_button(frm);
+}
+
+function setup_apply_batches_button(frm) {
+	const packed_field = frm.get_field("packed_fg_items");
+	if (!packed_field?.grid) {
+		return;
+	}
+
+	const is_readonly = frm.doc.docstatus !== 0;
+	const $grid_buttons = $(packed_field.grid.wrapper).find(".grid-footer .grid-buttons");
+	if (!$grid_buttons.length) {
+		return;
+	}
+
+	$grid_buttons.css({
+		display: "flex",
+		alignItems: "center",
+		flexWrap: "wrap",
+		gap: "8px",
+		width: "100%",
+	});
+
+	let $btn = $grid_buttons.find(".btn-apply-batches");
+	if (!$btn.length) {
+		$btn = $(`<button type="button" class="btn btn-primary btn-sm btn-apply-batches" style="margin-left: auto;">${__(
+			"Apply Batches"
+		)}</button>`);
+		$grid_buttons.append($btn);
+		$btn.on("click", () => {
+			const batch_ui = frm.get_field("item_batch_ui");
+			if (batch_ui) {
+				apply_batch_selection(frm, batch_ui.$wrapper);
+			}
+		});
+	}
+
+	$btn.toggle(!is_readonly);
 }
 
 function render_status_chip(value, has_value) {
@@ -816,14 +856,6 @@ function render_item_batch_ui(frm) {
 
 				html += `</tbody></table></div>`;
 
-				if (!is_readonly) {
-					html += `<div class="text-right" style="margin-top: 10px;">
-						<button type="button" class="btn btn-primary btn-sm btn-apply-batches">${__(
-							"Apply Batches"
-						)}</button>
-					</div>`;
-				}
-
 				html += `</div>`;
 				field.$wrapper.html(html);
 
@@ -868,13 +900,8 @@ function render_item_batch_ui(frm) {
 				highlight_selected_batch_row(field.$wrapper);
 				update_total();
 
-				if (!is_readonly) {
-					field.$wrapper.find(".btn-apply-batches").on("click", () => {
-						apply_batch_selection(frm, field.$wrapper);
-					});
-				}
-
 				update_pack_fg_form_actions(frm);
+				setup_apply_batches_button(frm);
 			},
 		});
 	});
