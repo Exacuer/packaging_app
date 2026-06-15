@@ -43,12 +43,6 @@ frappe.query_reports["Pack FG Report"] = {
 			"fieldname": "batch_no",
 			"label": "Source Batch",
 			"fieldtype": "Data"
-		},
-		{
-			"fieldname": "company",
-			"label": "Company",
-			"fieldtype": "Link",
-			"options": "Company"
 		}
 	]
 };
