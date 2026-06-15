@@ -1,0 +1,41 @@
+{
+ "custom_fields": [],
+ "custom_perms": [],
+ "doctype": "Repack FG Item Code",
+ "links": [],
+ "property_setters": [
+  {
+   "doc_type": "Repack FG Item Code",
+   "doctype_or_field": "DocField",
+   "field_name": "add_serial_batch_bundle",
+   "property": "hidden",
+   "property_type": "Check",
+   "value": "1"
+  },
+  {
+   "doc_type": "Repack FG Item Code",
+   "doctype_or_field": "DocField",
+   "field_name": "add_serial_batch_bundle",
+   "property": "in_list_view",
+   "property_type": "Check",
+   "value": "0"
+  },
+  {
+   "doc_type": "Repack FG Item Code",
+   "doctype_or_field": "DocField",
+   "field_name": "serial_and_batch_bundle",
+   "property": "reqd",
+   "property_type": "Check",
+   "value": "0"
+  },
+  {
+   "doc_type": "Repack FG Item Code",
+   "doctype_or_field": "DocField",
+   "field_name": "item_code",
+   "property": "link_filters",
+   "property_type": "JSON",
+   "value": "[]"
+  }
+ ],
+ "sync_on_migrate": 1
+}
