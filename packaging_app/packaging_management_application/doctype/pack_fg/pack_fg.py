@@ -164,7 +164,7 @@ class PackFG(Document):
 			bundle_entries, bundle_pool = allocate_bundle_qty_from_pool(bundle_pool, source_qty)
 
 			se = frappe.new_doc("Stock Entry")
-			se.stock_entry_type = "Repack"
+			se.stock_entry_type = "Packing"
 			se.purpose = "Repack"
 			se.custom_pack_fg = self.name
 			se.company = self.company
