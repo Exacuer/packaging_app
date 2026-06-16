@@ -16,6 +16,7 @@
   "batch_no",
   "section_break_aapo",
   "packing_items",
+  "packing_material_stock_ui",
   "item_batch_ui",
   "batch_picked_summary",
   "packed_fg_items"
@@ -90,6 +91,11 @@
    "label": "Batch No",
    "options": "Batch",
    "read_only": 1
+  },
+  {
+   "fieldname": "packing_material_stock_ui",
+   "fieldtype": "HTML",
+   "label": "Packing Item Code"
   },
   {
    "fieldname": "item_batch_ui",

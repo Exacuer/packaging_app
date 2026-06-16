@@ -1047,6 +1047,7 @@ function get_batch_filter_args(frm) {
 	return {
 		company: frm.doc.company,
 		repack_items: (frm.doc.repack_items || []).filter((row) => row.item_code),
+		finished_item: frm._anchor_finished_item || null,
 		posting_date: frm.doc.posting_date,
 		posting_time: frm.doc.posting_time,
 		item_group: "Packed Goods",
@@ -1193,6 +1194,7 @@ function render_item_batch_ui(frm) {
 							<th class="text-right" style="font-size: 12px;">${__("Pick Qty")}</th>
 							<th class="text-right" style="font-size: 12px;">${__("Total Qty")}</th>
 							<th class="text-center" style="font-size: 12px;">${__("Select Batch")}</th>
+							<th class="text-center" style="font-size: 12px;">${__("Push to Repack")}</th>
 						</tr>
 					</thead>
 					<tbody>`;
@@ -1203,6 +1205,7 @@ function render_item_batch_ui(frm) {
 					const pick_qty = picked_qty_map[batch.batch_no] || 0;
 					const row_total_qty = flt(batch.filling_capacity) * flt(pick_qty);
 					const is_selected = batch.batch_no === selected_batch_no;
+					const is_push_selected = !!find_repack_row(frm, batch.item_code, batch.warehouse);
 					const disabled = is_readonly ? "disabled" : "";
 					const row_style = is_selected
 						? "background-color: var(--subtle-accent, #f8f9fa);"
@@ -1229,6 +1232,11 @@ function render_item_batch_ui(frm) {
 							<input type="checkbox" class="batch-select-checkbox"
 								${is_selected ? "checked" : ""} ${disabled}
 								aria-label="${__("Select Batch")}">
+						</td>
+						<td class="text-center">
+							<input type="checkbox" class="batch-push-checkbox"
+								${is_push_selected ? "checked" : ""} ${disabled}
+								aria-label="${__("Push to Repack")}">
 						</td>
 					</tr>`;
 				}
@@ -1296,6 +1304,10 @@ function render_item_batch_ui(frm) {
 					update_total({ sync_model: true });
 				});
 
+				field.$wrapper.find(".batch-push-checkbox").on("change", function () {
+					sync_repack_items_from_push_selection(frm, field.$wrapper);
+				});
+
 				field.$wrapper.find(".batch-pick-qty").on("input change blur", function () {
 					validate_batch_pick_qty($(this));
 					update_total({ sync_model: true });
@@ -1330,6 +1342,43 @@ function find_repack_row(frm, item_code, warehouse) {
 			row.item_code === item_code &&
 			(!warehouse || !row.source_warehouse || row.source_warehouse === warehouse)
 	);
+}
+
+function sync_repack_items_from_push_selection(frm, $wrapper) {
+	let added_rows = 0;
+
+	$wrapper.find(".batch-push-checkbox:checked").each((_, checkbox) => {
+		const $tr = $(checkbox).closest("tr");
+		const $input = $tr.find(".batch-pick-qty");
+		const item_code = $input.data("item-code");
+		const source_warehouse = $input.data("warehouse");
+
+		if (!item_code || !source_warehouse) {
+			return;
+		}
+
+		const existing = find_repack_row(frm, item_code, source_warehouse);
+		if (existing) {
+			return;
+		}
+
+		frm.add_child("repack_items", {
+			item_code,
+			source_warehouse,
+		});
+		added_rows += 1;
+	});
+
+	if (!added_rows) {
+		return;
+	}
+
+	frm.refresh_field("repack_items");
+	update_repack_items_grid_limits(frm);
+	sync_semi_product_from_repack_items(frm).then(() => {
+		update_repack_form_actions(frm);
+		update_qty_summary(frm);
+	});
 }
 
 function collect_batch_picks_by_repack_row($wrapper, frm) {

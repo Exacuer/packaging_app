@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from erpnext.stock.utils import get_stock_balance
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import nowtime, flt
@@ -16,6 +17,7 @@ class PackFG(Document):
 		self.validate_packed_fg_items_for_stock_entry()
 		self.validate_packed_fg_items_batch()
 		self.validate_batch_bundle()
+		self.validate_packed_fg_warehouse_stock()
 		self.validate_qty()
 
 	def validate_packed_fg_items_for_stock_entry(self):
@@ -109,6 +111,19 @@ class PackFG(Document):
 			if item.serial_and_batch_bundle:
 				item.qty = get_bundle_total_qty(item.serial_and_batch_bundle)
 
+	def validate_packed_fg_warehouse_stock(self):
+		packing_row = next((row for row in self.packing_items if row.item_code), None)
+		if not packing_row:
+			return
+
+		validate_packed_fg_warehouse_stock(
+			source_fg_item=packing_row.item_code,
+			source_warehouse=packing_row.source_warehouse,
+			packed_fg_items=self.packed_fg_items,
+			posting_date=self.posting_date,
+			posting_time=self.posting_time,
+		)
+
 	def validate_qty(self):
 		"""Validate total picked qty equals sum of all packed_fg_items rows."""
 		self.sync_packing_qty_from_bundle()
@@ -152,6 +167,7 @@ class PackFG(Document):
 		packing_row = self.packing_items[0]
 		bundle_pool = get_mutable_bundle_pool(packing_row.serial_and_batch_bundle)
 		stock_entry_names = []
+		packing_item_code_map = get_packing_item_code_map(packing_row.item_code)
 
 		for packed_item in packed_rows:
 			if not flt(packed_item.pack_qty):
@@ -187,6 +203,23 @@ class PackFG(Document):
 				source_item["use_serial_batch_fields"] = 0
 
 			se.append("items", source_item)
+
+			packing_item_code = packing_item_code_map.get(packed_item.item_code)
+			if packing_item_code:
+				can_uom = frappe.get_cached_value("Item", packing_item_code, "stock_uom")
+				se.append(
+					"items",
+					{
+						"s_warehouse": packing_row.source_warehouse,
+						"item_code": packing_item_code,
+						"qty": pack_qty,
+						"transfer_qty": pack_qty,
+						"uom": can_uom,
+						"stock_uom": can_uom,
+						"conversion_factor": 1,
+						"use_serial_batch_fields": 1,
+					},
+				)
 
 			stock_uom = frappe.get_cached_value("Item", packed_item.item_code, "stock_uom")
 
@@ -931,6 +964,127 @@ def get_packaging_material_details(item_code):
 	return get_packaging_material_data(item_code)
 
 
+def get_packing_item_code_map(source_item_code):
+	return {
+		row["item"]: row.get("packing_item_code") or row["item"]
+		for row in get_packaging_material_data(source_item_code)
+		if row.get("item")
+	}
+
+
+def validate_packed_fg_warehouse_stock(
+	source_fg_item,
+	source_warehouse,
+	packed_fg_items,
+	posting_date=None,
+	posting_time=None,
+):
+	if not source_fg_item or not source_warehouse:
+		return
+
+	if isinstance(packed_fg_items, str):
+		packed_fg_items = frappe.parse_json(packed_fg_items)
+
+	item_code_map = get_packing_item_code_map(source_fg_item)
+	pack_precision = frappe.get_precision("Pack FG Item Target", "pack_qty") or 3
+
+	for item in packed_fg_items or []:
+		item_code = item.get("item_code") if isinstance(item, dict) else item.item_code
+		pack_qty = flt(item.get("pack_qty") if isinstance(item, dict) else item.pack_qty)
+		row_qty = flt(item.get("qty") if isinstance(item, dict) else item.qty)
+
+		if not item_code or not pack_qty:
+			continue
+
+		stock_item = item_code_map.get(item_code) or item_code
+		available_qty = flt(
+			get_stock_balance(
+				stock_item,
+				source_warehouse,
+				posting_date=posting_date,
+				posting_time=posting_time,
+			)
+		)
+
+		if flt(pack_qty, pack_precision) > flt(available_qty, pack_precision):
+			frappe.throw(
+				_(
+					"Packed FG Item {0} requires Pack Qty {1} (Qty {2}) but only {3} available in warehouse {4} for packing item {5}"
+				).format(
+					item_code,
+					pack_qty,
+					row_qty,
+					available_qty,
+					source_warehouse,
+					stock_item,
+				)
+			)
+
+
+@frappe.whitelist()
+def validate_packed_fg_warehouse_stock_api(
+	source_fg_item,
+	source_warehouse,
+	packed_fg_items,
+	posting_date=None,
+	posting_time=None,
+):
+	validate_packed_fg_warehouse_stock(
+		source_fg_item=source_fg_item,
+		source_warehouse=source_warehouse,
+		packed_fg_items=packed_fg_items,
+		posting_date=posting_date,
+		posting_time=posting_time,
+	)
+	return {"ok": True}
+
+
+@frappe.whitelist()
+def get_packing_material_stock(
+	item_code,
+	warehouse,
+	posting_date=None,
+	posting_time=None,
+):
+	if not item_code or not warehouse:
+		return {"warehouse": warehouse, "rows": []}
+
+	rows = []
+	for material in get_packaging_material_data(item_code):
+		packing_item = material.get("item")
+		packing_item_code = material.get("packing_item_code")
+		stock_item = packing_item_code or packing_item
+		if not stock_item:
+			continue
+
+		rows.append(
+			{
+				"packing_item_code": packing_item_code or packing_item,
+				"item_code": packing_item,
+				"item_name": material.get("packing_item_name")
+				or frappe.get_cached_value("Item", stock_item, "item_name"),
+				"packed_item": packing_item,
+				"packed_item_name": frappe.get_cached_value("Item", packing_item, "item_name")
+				if packing_item
+				else "",
+				"filling_capacity": flt(material.get("filling_capacity")),
+				"warehouse_qty": flt(
+					get_stock_balance(
+						stock_item,
+						warehouse,
+						posting_date=posting_date,
+						posting_time=posting_time,
+					)
+				),
+			}
+		)
+
+	return {
+		"warehouse": warehouse,
+		"rows": rows,
+	}
+
+
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_item_packaging_material(
@@ -968,6 +1122,7 @@ def get_packaging_material_data(item_code):
 			"parenttype": "Item",
 		},
 		fields=[
+			"packing_item_code",
 			"item",
 			"packing_item_name",
 			"filling_capacity",

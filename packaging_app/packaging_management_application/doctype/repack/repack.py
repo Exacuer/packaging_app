@@ -945,6 +945,7 @@ def get_repack_filling_capacity(repack_items):
 def get_active_batches_for_repack(
 	company,
 	repack_items=None,
+	finished_item=None,
 	posting_date=None,
 	posting_time=None,
 	item_group="Packed Goods",
@@ -953,13 +954,54 @@ def get_active_batches_for_repack(
 		repack_items = frappe.parse_json(repack_items)
 
 	rows = repack_items or []
-	if not rows:
+	if not rows and not finished_item:
 		return get_active_batches(
 			company=company,
 			posting_date=posting_date,
 			posting_time=posting_time,
 			item_group=item_group,
 		)
+
+	# When an anchor finished item is available, do not narrow batch visibility to only
+	# the currently selected repack rows. Show all packed items under the same finished
+	# item so users can push multiple related items from the batch table.
+	if finished_item and frappe.db.has_column("Item", "custom_finished_item"):
+		item_filters = {
+			"custom_finished_item": finished_item,
+			"disabled": 0,
+		}
+		if item_group:
+			item_filters["item_group"] = item_group
+
+		item_codes = frappe.get_all("Item", filters=item_filters, pluck="name")
+		warehouses = list(
+			{
+				(row.get("source_warehouse") if isinstance(row, dict) else None) or ""
+				for row in rows
+			}
+		)
+		warehouses = warehouses or [""]
+
+		seen = set()
+		batches = []
+		for item_code in item_codes:
+			for warehouse in warehouses:
+				key = (item_code, warehouse)
+				if key in seen:
+					continue
+				seen.add(key)
+				batches.extend(
+					get_active_batches(
+						company=company,
+						item_code=item_code,
+						warehouse=warehouse or None,
+						posting_date=posting_date,
+						posting_time=posting_time,
+						item_group=item_group,
+					)
+				)
+
+		return batches
 
 	seen = set()
 	batches = []
