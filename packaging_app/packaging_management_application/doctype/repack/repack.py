@@ -170,7 +170,7 @@ class Repack(Document):
 		self.cancel_stock_entry()
 
 	def create_stock_entry(self):
-		"""Create one Stock Entry: all repack items out, semi-product row(s) in."""
+		"""Create repack Stock Entry and separate Packaging Repack Stock Entry."""
 		repack_rows = [row for row in self.repack_items if row.item_code]
 		target_rows = [item for item in self.packed_fg_items if item.item_code]
 
@@ -179,14 +179,36 @@ class Repack(Document):
 		if not target_rows:
 			frappe.throw(_("Add a Semi Product Item before submit"))
 
+		packing_item_code_map = get_packing_item_code_map_by_packed_items(
+			[row.item_code for row in repack_rows if row.item_code]
+		)
+
+		created_entries = []
+		created_entries.append(self._create_repack_stock_entry(repack_rows, target_rows))
+
+		packaging_se = self._create_packaging_repack_stock_entry(
+			repack_rows, packing_item_code_map
+		)
+		if packaging_se:
+			created_entries.append(packaging_se)
+
+		frappe.msgprint(
+			_("Stock Entries {0} created.").format(", ".join(created_entries)),
+			alert=True,
+		)
+
+	def _new_repack_linked_stock_entry(self, stock_entry_type):
 		se = frappe.new_doc("Stock Entry")
-		se.stock_entry_type = "Repack"
-		se.purpose = "Repack"
+		se.stock_entry_type = stock_entry_type
 		se.custom_repack = self.name
 		se.company = self.company
 		se.posting_date = self.posting_date
 		se.posting_time = self.posting_time or nowtime()
 		se.set_posting_time = 1
+		return se
+
+	def _create_repack_stock_entry(self, repack_rows, target_rows):
+		se = self._new_repack_linked_stock_entry("Repack")
 
 		for repack_row in repack_rows:
 			outward_qty = flt(repack_row.qty)
@@ -261,11 +283,59 @@ class Repack(Document):
 		se.insert()
 		link_inward_bundle_to_stock_entry(se)
 		se.submit()
+		return se.name
 
-		frappe.msgprint(
-			_("Stock Entry {0} created.").format(se.name),
-			alert=True,
-		)
+	def _create_packaging_repack_stock_entry(self, repack_rows, packing_item_code_map):
+		packing_lines = {}
+
+		for repack_row in repack_rows:
+			outward_qty = flt(repack_row.qty)
+			if not outward_qty:
+				continue
+
+			packing_item_code = packing_item_code_map.get(repack_row.item_code)
+			if not packing_item_code:
+				continue
+
+			has_batch_no = frappe.get_cached_value("Item", packing_item_code, "has_batch_no")
+			if has_batch_no:
+				frappe.throw(
+					_(
+						"Packing Item {0} requires Batch Selection, but Repack packing material batching is not implemented."
+					).format(packing_item_code)
+				)
+
+			key = (packing_item_code, repack_row.source_warehouse)
+			packing_lines[key] = packing_lines.get(key, 0) + outward_qty
+
+		if not packing_lines:
+			return None
+
+		if not frappe.db.exists("Stock Entry Type", "Packaging Repack"):
+			frappe.throw(_("Stock Entry Type {0} is not configured.").format("Packaging Repack"))
+
+		se = self._new_repack_linked_stock_entry("Packaging Repack")
+
+		for (packing_item_code, warehouse), qty in packing_lines.items():
+			packing_stock_uom = frappe.get_cached_value("Item", packing_item_code, "stock_uom")
+			se.append(
+				"items",
+				{
+					"t_warehouse": warehouse,
+					"item_code": packing_item_code,
+					"qty": qty,
+					"transfer_qty": qty,
+					"uom": packing_stock_uom,
+					"stock_uom": packing_stock_uom,
+					"conversion_factor": 1,
+					"is_finished_item": 1,
+					"use_serial_batch_fields": 0,
+				},
+			)
+
+		se.insert()
+		se.submit()
+		return se.name
 
 	def cancel_stock_entry(self):
 		stock_entries = frappe.get_all(
@@ -1091,6 +1161,26 @@ def get_semi_product_data(packed_item_code):
 		for row in rows
 		if row.parent in item_names
 	]
+
+
+def get_packing_item_code_map_by_packed_items(packed_item_codes):
+	"""Map packed item (e.g. COROSEAL1090 ...) → packing item code (e.g. PK00042)."""
+	if not packed_item_codes:
+		return {}
+
+	rows = frappe.get_all(
+		"Packing Material Details",
+		filters={"item": ["in", packed_item_codes]},
+		fields=["item", "packing_item_code"],
+	)
+
+	# If multiple parents exist for same packed item, pick the first packing_item_code.
+	out = {}
+	for row in rows:
+		if not row.get("packing_item_code"):
+			continue
+		out[row["item"]] = row["packing_item_code"]
+	return out
 
 
 def filter_batches_by_item_group(batches, item_group="Packed Goods"):

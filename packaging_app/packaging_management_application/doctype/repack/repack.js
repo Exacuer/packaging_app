@@ -1369,13 +1369,13 @@ function sync_repack_items_from_push_selection(frm, $wrapper) {
 		added_rows += 1;
 	});
 
-	if (!added_rows) {
-		return;
+	if (added_rows) {
+		frm.refresh_field("repack_items");
+		update_repack_items_grid_limits(frm);
 	}
 
-	frm.refresh_field("repack_items");
-	update_repack_items_grid_limits(frm);
-	sync_semi_product_from_repack_items(frm).then(() => {
+	return sync_semi_product_from_repack_items(frm).then(() => {
+		render_item_batch_ui(frm);
 		update_repack_form_actions(frm);
 		update_qty_summary(frm);
 	});
