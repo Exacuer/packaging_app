@@ -1244,3 +1244,44 @@ def get_active_batches(
 		)
 
 	return filter_batches_by_product_group(result, product_group)
+
+
+@frappe.whitelist()
+def get_pending_sales_order_qty(item_group=None):
+	"""Pending (undelivered) Sales Order qty per item, totalled across ALL customers.
+
+	Display-only helper for the "Create Sales Order" dialog on Pack FG. Sums
+	(qty - delivered_qty) over every open, submitted Sales Order Item, grouped by item.
+	"""
+	conditions = ""
+	values = {}
+	if item_group:
+		conditions = "AND item.item_group = %(item_group)s"
+		values["item_group"] = item_group
+
+	rows = frappe.db.sql(
+		f"""
+		SELECT
+			soi.item_code,
+			soi.item_name,
+			soi.stock_uom AS uom,
+			SUM(soi.qty - soi.delivered_qty) AS pending_qty
+		FROM `tabSales Order Item` soi
+		INNER JOIN `tabSales Order` so ON so.name = soi.parent
+		INNER JOIN `tabItem` item ON item.name = soi.item_code
+		WHERE so.docstatus = 1
+			AND so.status NOT IN ('Closed', 'Completed')
+			AND (soi.qty - soi.delivered_qty) > 0
+			{conditions}
+		GROUP BY soi.item_code, soi.item_name, soi.stock_uom
+		HAVING pending_qty > 0
+		ORDER BY pending_qty DESC
+		""",
+		values,
+		as_dict=True,
+	)
+
+	for row in rows:
+		row["pending_qty"] = flt(row.get("pending_qty"))
+
+	return rows

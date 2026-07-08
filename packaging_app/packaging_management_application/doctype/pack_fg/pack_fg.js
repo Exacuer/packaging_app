@@ -7,6 +7,7 @@ frappe.ui.form.on("Pack FG", {
 	},
 
 	refresh(frm) {
+		frm.add_custom_button(__("Create Sales Order"), () => show_pending_sales_order_dialog(frm));
 		if (frm.fields_dict?.packing_items?.grid) {
 			frm.fields_dict.packing_items.grid.update_docfield_property("qty", "read_only", 1);
 		}
@@ -1340,4 +1341,75 @@ function apply_batch_selection(frm, $wrapper) {
 			});
 		},
 	});
+}
+
+// "Create Sales Order" button: display-only dialog of FG items with pending
+// (undelivered) Sales Order qty, totalled across ALL customers.
+function show_pending_sales_order_dialog(frm) {
+	frappe.call({
+		method: "packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_pending_sales_order_qty",
+		freeze: true,
+		freeze_message: __("Loading pending Sales Order quantity..."),
+		callback(r) {
+			const rows = r.message || [];
+			const dialog = new frappe.ui.Dialog({
+				title: __("Pending Sales Order Qty"),
+				size: "large",
+				fields: [{ fieldtype: "HTML", fieldname: "pending_html" }],
+			});
+			dialog.fields_dict.pending_html.$wrapper.html(build_pending_so_html(rows));
+			dialog.show();
+		},
+	});
+}
+
+function build_pending_so_html(rows) {
+	if (!rows.length) {
+		return `<div class="text-muted" style="padding:16px;text-align:center;">${__(
+			"No pending Sales Order quantity."
+		)}</div>`;
+	}
+
+	const precision = frappe.defaults.get_default("float_precision") || 3;
+	let total = 0;
+	const body = rows
+		.map((row, index) => {
+			const pending = flt(row.pending_qty, precision);
+			total += pending;
+			return `<tr>
+				<td style="text-align:center;">${index + 1}</td>
+				<td>${frappe.utils.escape_html(row.item_code || "")}</td>
+				<td>${frappe.utils.escape_html(row.item_name || "")}</td>
+				<td style="text-align:right;font-variant-numeric:tabular-nums;">${format_number(pending, null, precision)}</td>
+				<td>${frappe.utils.escape_html(row.uom || "")}</td>
+			</tr>`;
+		})
+		.join("");
+
+	return `
+		<div class="table-responsive">
+			<table class="table table-bordered" style="margin:0;font-size:13px;">
+				<thead>
+					<tr>
+						<th style="width:8%;text-align:center;">#</th>
+						<th style="width:24%;">${__("Item Code")}</th>
+						<th>${__("Item Name")}</th>
+						<th style="width:18%;text-align:right;">${__("Pending Qty")}</th>
+						<th style="width:12%;">${__("UOM")}</th>
+					</tr>
+				</thead>
+				<tbody>${body}</tbody>
+				<tfoot>
+					<tr>
+						<td colspan="3" style="text-align:right;font-weight:600;">${__("Total Pending Qty")}</td>
+						<td style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">${format_number(
+							flt(total, precision),
+							null,
+							precision
+						)}</td>
+						<td></td>
+					</tr>
+				</tfoot>
+			</table>
+		</div>`;
 }

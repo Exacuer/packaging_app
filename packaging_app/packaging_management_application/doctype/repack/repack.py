@@ -311,8 +311,23 @@ class Repack(Document):
 		if not packing_lines:
 			return None
 
-		if not frappe.db.exists("Stock Entry Type", "Packaging Repack"):
+		packaging_type_purpose = frappe.db.get_value(
+			"Stock Entry Type", "Packaging Repack", "purpose"
+		)
+		if not packaging_type_purpose:
 			frappe.throw(_("Stock Entry Type {0} is not configured.").format("Packaging Repack"))
+
+		# The Packaging Repack stock entry only *produces* packing material (target rows,
+		# no source), so its purpose must not be one that requires a raw material to
+		# consume; otherwise ERPNext throws the misleading "Raw Materials Missing" error.
+		if packaging_type_purpose in ("Manufacture", "Repack", "Disassemble"):
+			frappe.throw(
+				_(
+					"Stock Entry Type 'Packaging Repack' must have Purpose 'Material Receipt' "
+					"(it currently has '{0}'). This entry only produces packing material and has "
+					"no raw material to consume. Please fix the Stock Entry Type."
+				).format(packaging_type_purpose)
+			)
 
 		se = self._new_repack_linked_stock_entry("Packaging Repack")
 
