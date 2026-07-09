@@ -1049,6 +1049,9 @@ def get_packing_material_stock(
 	if not item_code or not warehouse:
 		return {"warehouse": warehouse, "rows": []}
 
+	company = frappe.get_cached_value("Warehouse", warehouse, "company")
+	mainstore_warehouse = get_mainstore_fg_warehouse(company)
+
 	rows = []
 	for material in get_packaging_material_data(item_code):
 		packing_item = material.get("item")
@@ -1056,6 +1059,18 @@ def get_packing_material_stock(
 		stock_item = packing_item_code or packing_item
 		if not stock_item:
 			continue
+
+		# Mainstore FG stock = the packed FG item ("Item fg") stock in Main Store FG.
+		mainstore_fg_stock = 0.0
+		if mainstore_warehouse and packing_item:
+			mainstore_fg_stock = flt(
+				get_stock_balance(
+					packing_item,
+					mainstore_warehouse,
+					posting_date=posting_date,
+					posting_time=posting_time,
+				)
+			)
 
 		rows.append(
 			{
@@ -1076,11 +1091,13 @@ def get_packing_material_stock(
 						posting_time=posting_time,
 					)
 				),
+				"mainstore_fg_stock": mainstore_fg_stock,
 			}
 		)
 
 	return {
 		"warehouse": warehouse,
+		"mainstore_warehouse": mainstore_warehouse,
 		"rows": rows,
 	}
 
@@ -1138,6 +1155,19 @@ def get_default_wip_fg_warehouse(company):
 		return None
 
 	warehouse = f"WIP FG - {abbr}"
+	return warehouse if frappe.db.exists("Warehouse", warehouse) else None
+
+
+def get_mainstore_fg_warehouse(company):
+	"""Main Store FG warehouse for the company (holds packed FG mainstore stock)."""
+	if not company:
+		return None
+
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	if not abbr:
+		return None
+
+	warehouse = f"Main Store FG - {abbr}"
 	return warehouse if frappe.db.exists("Warehouse", warehouse) else None
 
 

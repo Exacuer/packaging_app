@@ -357,8 +357,9 @@ function render_packing_material_stock_ui(frm) {
 						<th style="font-size: 12px;">${__("Packing Item Code")}</th>
 						<th style="font-size: 12px;">${__("Item Name")}</th>
 						<th class="text-right" style="font-size: 12px;">${__("Filling Capacity")}</th>
-						<th style="font-size: 12px;">${__("Item")}</th>
-						<th class="text-right" style="font-size: 12px;">${__("Qty in Warehouse")}</th>
+						<th class="text-right" style="font-size: 12px;">${__("Packing Quantity in Warehouse")}</th>
+						<th style="font-size: 12px;">${__("Item fg")}</th>
+						<th class="text-right" style="font-size: 12px;">${__("Mainstore FG -Stock")}</th>
 					</tr>
 				</thead>
 				<tbody>`;
@@ -368,8 +369,9 @@ function render_packing_material_stock_ui(frm) {
 					<td>${frappe.utils.escape_html(row.packing_item_code || row.item_code)}</td>
 					<td>${frappe.utils.escape_html(row.item_name || "")}</td>
 					<td class="text-right">${format_number(row.filling_capacity)}</td>
-					<td>${frappe.utils.escape_html(row.packed_item_name || row.packed_item || "")}</td>
 					<td class="text-right">${format_number(row.warehouse_qty)}</td>
+					<td>${frappe.utils.escape_html(row.packed_item_name || row.packed_item || "")}</td>
+					<td class="text-right">${format_number(row.mainstore_fg_stock)}</td>
 				</tr>`;
 			}
 
