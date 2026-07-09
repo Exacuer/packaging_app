@@ -1277,17 +1277,28 @@ def get_active_batches(
 
 
 @frappe.whitelist()
-def get_pending_sales_order_qty(item_group=None):
+def get_pending_sales_order_qty(item_group=None, item_codes=None):
 	"""Pending (undelivered) Sales Order qty per item, totalled across ALL customers.
 
 	Display-only helper for the "Create Sales Order" dialog on Pack FG. Sums
 	(qty - delivered_qty) over every open, submitted Sales Order Item, grouped by item.
+
+	When ``item_codes`` is passed (the Packing Items source item(s) of the current
+	Pack FG doc), results are limited to those items so the dialog only shows the
+	undelivered stock for the item(s) being packed.
 	"""
 	conditions = ""
 	values = {}
 	if item_group:
-		conditions = "AND item.item_group = %(item_group)s"
+		conditions += " AND item.item_group = %(item_group)s"
 		values["item_group"] = item_group
+
+	if isinstance(item_codes, str):
+		item_codes = frappe.parse_json(item_codes)
+	item_codes = [code for code in (item_codes or []) if code]
+	if item_codes:
+		conditions += " AND soi.item_code IN %(item_codes)s"
+		values["item_codes"] = tuple(item_codes)
 
 	rows = frappe.db.sql(
 		f"""

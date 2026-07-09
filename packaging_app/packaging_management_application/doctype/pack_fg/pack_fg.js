@@ -1345,11 +1345,30 @@ function apply_batch_selection(frm, $wrapper) {
 	});
 }
 
-// "Create Sales Order" button: display-only dialog of FG items with pending
-// (undelivered) Sales Order qty, totalled across ALL customers.
+// "Create Sales Order" button: display-only dialog of the Packing Items source
+// item(s) with their pending (undelivered) Sales Order qty, totalled across ALL
+// customers.
 function show_pending_sales_order_dialog(frm) {
+	const item_codes = [
+		...new Set(
+			(frm.doc.packing_items || [])
+				.map((row) => row.item_code)
+				.filter(Boolean)
+		),
+	];
+
+	if (!item_codes.length) {
+		frappe.msgprint({
+			title: __("No Packing Item"),
+			message: __("Please add an item in Packing Items first."),
+			indicator: "orange",
+		});
+		return;
+	}
+
 	frappe.call({
 		method: "packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_pending_sales_order_qty",
+		args: { item_codes },
 		freeze: true,
 		freeze_message: __("Loading pending Sales Order quantity..."),
 		callback(r) {
