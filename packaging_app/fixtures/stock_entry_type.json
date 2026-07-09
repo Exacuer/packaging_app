@@ -1,0 +1,20 @@
+[
+ {
+  "add_to_transit": 0,
+  "docstatus": 0,
+  "doctype": "Stock Entry Type",
+  "is_standard": 0,
+  "modified": "2026-01-20 12:57:37.892197",
+  "name": "Packing",
+  "purpose": "Repack"
+ },
+ {
+  "add_to_transit": 0,
+  "docstatus": 0,
+  "doctype": "Stock Entry Type",
+  "is_standard": 0,
+  "modified": "2026-07-07 11:11:10.889714",
+  "name": "Packaging Repack",
+  "purpose": "Material Receipt"
+ }
+]

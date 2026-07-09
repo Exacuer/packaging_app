@@ -10,6 +10,18 @@ app_license = "mit"
 
 # required_apps = []
 
+# Fixtures
+# ------------------
+# Ship the custom Stock Entry Types this app depends on so their `purpose`
+# stays in sync across environments (local <-> prod). Standard ERPNext types
+# (Material Receipt, Repack, etc.) are intentionally excluded.
+fixtures = [
+	{
+		"doctype": "Stock Entry Type",
+		"filters": {"name": ["in", ["Packaging Repack", "Packing"]]},
+	},
+]
+
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
 # 	{
