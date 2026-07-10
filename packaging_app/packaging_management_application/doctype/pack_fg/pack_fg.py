@@ -1278,14 +1278,19 @@ def get_active_batches(
 
 @frappe.whitelist()
 def get_pending_sales_order_qty(item_group=None, item_codes=None):
-	"""Pending (undelivered) Sales Order qty per item, totalled across ALL customers.
+	"""Pending (undelivered) Sales Order qty per packing material, totalled across ALL customers.
 
-	Display-only helper for the "Create Sales Order" dialog on Pack FG. Sums
-	(qty - delivered_qty) over every open, submitted Sales Order Item, grouped by item.
+	Display-only helper for the "Create Sales Order" dialog on Pack FG. Results are
+	keyed to the packing material (the Packing Items source item, e.g. FG00021), not
+	the packed variant that appears on the Sales Order. Sales Order Items carry the
+	packing material in ``custom_packing_material`` and the per-unit fill in
+	``custom_filling_capacity``; pending qty is therefore expressed in the packing
+	material's own UOM (kg) as SUM((qty - delivered_qty) * custom_filling_capacity)
+	over every open, submitted Sales Order Item, grouped by packing material.
 
 	When ``item_codes`` is passed (the Packing Items source item(s) of the current
-	Pack FG doc), results are limited to those items so the dialog only shows the
-	undelivered stock for the item(s) being packed.
+	Pack FG doc), results are limited to those packing materials so the dialog only
+	shows the undelivered qty for the item(s) being packed.
 	"""
 	conditions = ""
 	values = {}
@@ -1297,24 +1302,26 @@ def get_pending_sales_order_qty(item_group=None, item_codes=None):
 		item_codes = frappe.parse_json(item_codes)
 	item_codes = [code for code in (item_codes or []) if code]
 	if item_codes:
-		conditions += " AND soi.item_code IN %(item_codes)s"
+		conditions += " AND soi.custom_packing_material IN %(item_codes)s"
 		values["item_codes"] = tuple(item_codes)
 
 	rows = frappe.db.sql(
 		f"""
 		SELECT
-			soi.item_code,
-			soi.item_name,
-			soi.stock_uom AS uom,
-			SUM(soi.qty - soi.delivered_qty) AS pending_qty
+			soi.custom_packing_material AS item_code,
+			item.item_name,
+			item.stock_uom AS uom,
+			SUM((soi.qty - soi.delivered_qty) * COALESCE(soi.custom_filling_capacity, 0)) AS pending_qty
 		FROM `tabSales Order Item` soi
 		INNER JOIN `tabSales Order` so ON so.name = soi.parent
-		INNER JOIN `tabItem` item ON item.name = soi.item_code
+		INNER JOIN `tabItem` item ON item.name = soi.custom_packing_material
 		WHERE so.docstatus = 1
 			AND so.status NOT IN ('Closed', 'Completed')
 			AND (soi.qty - soi.delivered_qty) > 0
+			AND soi.custom_packing_material IS NOT NULL
+			AND soi.custom_packing_material != ''
 			{conditions}
-		GROUP BY soi.item_code, soi.item_name, soi.stock_uom
+		GROUP BY soi.custom_packing_material, item.item_name, item.stock_uom
 		HAVING pending_qty > 0
 		ORDER BY pending_qty DESC
 		""",
