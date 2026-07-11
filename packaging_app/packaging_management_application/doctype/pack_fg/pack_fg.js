@@ -7,7 +7,7 @@ frappe.ui.form.on("Pack FG", {
 	},
 
 	refresh(frm) {
-		frm.add_custom_button(__("Create Sales Order"), () => show_pending_sales_order_dialog(frm));
+		frm.add_custom_button(__("Pending Sales Order"), () => show_pending_sales_order_dialog(frm));
 		if (frm.fields_dict?.packing_items?.grid) {
 			frm.fields_dict.packing_items.grid.update_docfield_property("qty", "read_only", 1);
 		}
