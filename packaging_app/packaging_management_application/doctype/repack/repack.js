@@ -32,6 +32,8 @@ frappe.ui.form.on("Repack", {
 				},
 			};
 		});
+
+		set_plant_warehouse_queries(frm);
 	},
 
 	refresh(frm) {
@@ -84,6 +86,10 @@ frappe.ui.form.on("Repack", {
 				update_repack_form_actions(frm);
 			});
 		});
+	},
+
+	plant(frm) {
+		set_plant_warehouse_queries(frm);
 	},
 
 	posting_date(frm) {
@@ -316,6 +322,22 @@ function get_anchor_repack_row(parent_doc, current_cdn) {
 		return null;
 	}
 	return first_row;
+}
+
+// Source Warehouse (Repack Items) and Target Warehouse (Packed FG Items) are
+// restricted to whatever warehouses are listed against the selected Plant
+// (Plant Warehouse doctype) — same query used on Pack FG, re-applied whenever
+// Plant changes so an already selected warehouse from a different plant is
+// not silently kept.
+function set_plant_warehouse_queries(frm) {
+	const get_args = () => ({
+		query:
+			"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_plant_warehouse_query",
+		filters: { plant: frm.doc.plant || "" },
+	});
+
+	frm.set_query("source_warehouse", "repack_items", get_args);
+	frm.set_query("target_warehouse", "packed_fg_items", get_args);
 }
 
 function get_used_repack_items(parent_doc, current_cdn) {
