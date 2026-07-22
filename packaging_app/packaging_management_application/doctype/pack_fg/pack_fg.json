@@ -12,6 +12,7 @@
   "naming_series",
   "column_break_zeuk",
   "company",
+  "plant",
   "amended_from",
   "batch_no",
   "section_break_aapo",
@@ -52,6 +53,15 @@
    "in_list_view": 1,
    "label": "Company",
    "options": "Company",
+   "reqd": 1
+  },
+  {
+   "description": "Restricts Source Warehouse (Packing Items) and Target Warehouse (Packed FG Items) to only the warehouses listed for this plant.",
+   "fieldname": "plant",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Plant",
+   "options": "Plant Warehouse",
    "reqd": 1
   },
   {

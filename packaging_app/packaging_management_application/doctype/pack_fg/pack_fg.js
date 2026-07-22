@@ -44,6 +44,7 @@ frappe.ui.form.on("Pack FG", {
 				},
 			};
 		});
+		set_plant_warehouse_queries(frm);
 		setup_batch_section_header(frm);
 		setup_packing_material_stock_header(frm);
 		setup_packed_fg_header(frm);
@@ -61,6 +62,10 @@ frappe.ui.form.on("Pack FG", {
 			render_item_batch_ui(frm);
 			update_pack_fg_form_actions(frm);
 		});
+	},
+
+	plant(frm) {
+		set_plant_warehouse_queries(frm);
 	},
 
 	posting_date(frm) {
@@ -267,6 +272,21 @@ function update_pack_fg_form_actions(frm) {
 	if (frm.page.btn_primary) {
 		frm.page.btn_primary.toggle(show_save);
 	}
+}
+
+// Source Warehouse (Packing Items) and Target Warehouse (Packed FG Items) are
+// restricted to whatever warehouses are listed against the selected Plant
+// (Plant Warehouse doctype) — re-applied whenever Plant changes so an already
+// selected warehouse from a different plant is not silently kept.
+function set_plant_warehouse_queries(frm) {
+	const get_args = () => ({
+		query:
+			"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_plant_warehouse_query",
+		filters: { plant: frm.doc.plant || "" },
+	});
+
+	frm.set_query("source_warehouse", "packing_items", get_args);
+	frm.set_query("target_warehouse", "packed_fg_items", get_args);
 }
 
 function get_used_packed_fg_items(doc, current_cdn) {

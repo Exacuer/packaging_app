@@ -1,6 +1,8 @@
 # Copyright (c) 2026, Vivek Choudhary and contributors
 # For license information, please see license.txt
 
+import json
+
 import frappe
 from erpnext.stock.utils import get_stock_balance
 from frappe import _
@@ -1100,6 +1102,42 @@ def get_packing_material_stock(
 		"mainstore_warehouse": mainstore_warehouse,
 		"rows": rows,
 	}
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_plant_warehouse_query(doctype, txt, searchfield, start, page_len, filters):
+	"""Restrict Source/Target Warehouse options to the warehouses listed against
+	the Pack FG's selected Plant (Plant Warehouse doctype)."""
+	if isinstance(filters, str):
+		filters = json.loads(filters)
+
+	plant = (filters or {}).get("plant")
+	if not plant:
+		return []
+
+	warehouses = frappe.get_all(
+		"Plant Warehouse Item", filters={"parent": plant}, pluck="warehouse"
+	)
+	if not warehouses:
+		return []
+
+	return frappe.db.sql(
+		"""
+		SELECT name, warehouse_name
+		FROM `tabWarehouse`
+		WHERE name IN %(warehouses)s
+			AND name LIKE %(txt)s
+		ORDER BY name
+		LIMIT %(page_len)s OFFSET %(start)s
+		""",
+		{
+			"warehouses": warehouses,
+			"txt": f"%{txt}%",
+			"start": start,
+			"page_len": page_len,
+		},
+	)
 
 
 @frappe.whitelist()
