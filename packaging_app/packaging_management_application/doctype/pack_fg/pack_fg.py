@@ -1187,13 +1187,19 @@ def get_packaging_material_data(item_code):
 	)
 
 
-def get_default_wip_fg_warehouse(company):
-	abbr = frappe.get_cached_value("Company", company, "abbr")
-	if not abbr:
+def get_plant_wip_fg_warehouse(plant):
+	"""WIP FG warehouse configured against the Plant (e.g. "Plant 1 WIP FG - PTPL").
+
+	This is the warehouse whose Finished Goods batches are offered in Batch Selection and
+	that seeds the default Source/Target Warehouse. It is deliberately read from the Plant
+	Warehouse record rather than derived from the company abbr, so each plant keeps its own
+	WIP FG stock.
+	"""
+	if not plant:
 		return None
 
-	warehouse = f"WIP FG - {abbr}"
-	return warehouse if frappe.db.exists("Warehouse", warehouse) else None
+	warehouse = frappe.db.get_value("Plant Warehouse", plant, "wip_fg_warehouse")
+	return warehouse or None
 
 
 def get_mainstore_fg_warehouse(company):
@@ -1231,8 +1237,8 @@ def filter_batches_by_product_group(batches, product_group="Finished Goods"):
 
 
 @frappe.whitelist()
-def get_default_wip_fg_warehouse_api(company):
-	return get_default_wip_fg_warehouse(company)
+def get_plant_wip_fg_warehouse_api(plant):
+	return get_plant_wip_fg_warehouse(plant)
 
 
 @frappe.whitelist()
@@ -1243,6 +1249,7 @@ def get_active_batches(
 	posting_date=None,
 	posting_time=None,
 	product_group="Finished Goods",
+	plant=None,
 ):
 	from erpnext.stock.doctype.serial_and_batch_bundle.serial_and_batch_bundle import get_auto_batch_nos
 
@@ -1250,7 +1257,7 @@ def get_active_batches(
 		frappe.throw(_("Company is required"))
 
 	if not warehouse:
-		warehouse = get_default_wip_fg_warehouse(company)
+		warehouse = get_plant_wip_fg_warehouse(plant)
 
 	kwargs = frappe._dict(
 		{

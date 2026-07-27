@@ -62,7 +62,7 @@ frappe.ui.form.on("Repack", {
 		});
 		setup_batch_section_header(frm);
 		setup_semi_product_header(frm);
-		set_default_wip_fg_warehouse(frm).then(() => {
+		set_plant_wip_fg_warehouse(frm).then(() => {
 			apply_default_target_warehouse(frm);
 			const after_sync = () => {
 				render_item_batch_ui(frm);
@@ -79,7 +79,7 @@ frappe.ui.form.on("Repack", {
 	},
 
 	company(frm) {
-		set_default_wip_fg_warehouse(frm).then(() => {
+		set_plant_wip_fg_warehouse(frm).then(() => {
 			apply_default_target_warehouse(frm);
 			sync_semi_product_from_repack_items(frm).then(() => {
 				render_item_batch_ui(frm);
@@ -88,8 +88,15 @@ frappe.ui.form.on("Repack", {
 		});
 	},
 
+	// Plant drives the WIP FG warehouse, so changing it has to re-resolve the warehouse and
+	// redraw Batch Selection -- otherwise the previous plant's batches stay on screen.
 	plant(frm) {
 		set_plant_warehouse_queries(frm);
+		set_plant_wip_fg_warehouse(frm).then(() => {
+			apply_default_target_warehouse(frm);
+			render_item_batch_ui(frm);
+			update_repack_form_actions(frm);
+		});
 	},
 
 	posting_date(frm) {
@@ -220,8 +227,8 @@ frappe.ui.form.on("Reack FG Item Target", {
 	packed_fg_items_add(frm, cdt, cdn) {
 		update_semi_product_grid_limits(frm);
 		let child = locals[cdt][cdn];
-		if (frm._default_wip_fg_warehouse) {
-			child.target_warehouse = frm._default_wip_fg_warehouse;
+		if (frm._plant_wip_fg_warehouse) {
+			child.target_warehouse = frm._plant_wip_fg_warehouse;
 		}
 		set_semi_product_row_batch_if_enabled(frm, cdt, cdn);
 		setup_apply_batches_button(frm);
@@ -433,8 +440,8 @@ function sync_semi_product_from_repack_items(frm) {
 					info.item_filling_capacity_map[repack_rows[0].item_code]
 				);
 			}
-			if (!target_row.target_warehouse && frm._default_wip_fg_warehouse) {
-				updates.target_warehouse = frm._default_wip_fg_warehouse;
+			if (!target_row.target_warehouse && frm._plant_wip_fg_warehouse) {
+				updates.target_warehouse = frm._plant_wip_fg_warehouse;
 			}
 
 			set_model_value_if_changed(target_row.doctype, target_row.name, updates).then(() => {
@@ -1073,32 +1080,35 @@ function get_batch_filter_args(frm) {
 		posting_date: frm.doc.posting_date,
 		posting_time: frm.doc.posting_time,
 		item_group: "Packed Goods",
+		plant: frm.doc.plant || null,
 	};
 }
 
-function set_default_wip_fg_warehouse(frm) {
-	if (!frm.doc.company) {
-		frm._default_wip_fg_warehouse = null;
+// The WIP FG warehouse comes from the selected Plant (Plant Warehouse.wip_fg_warehouse),
+// so Plant 1 and Plant 2 each read their own packed stock.
+function set_plant_wip_fg_warehouse(frm) {
+	if (!frm.doc.plant) {
+		frm._plant_wip_fg_warehouse = null;
 		return Promise.resolve(null);
 	}
 
 	return frappe
 		.call({
 			method:
-				"packaging_app.packaging_management_application.doctype.repack.repack.get_default_wip_fg_warehouse_api",
-			args: { company: frm.doc.company },
+				"packaging_app.packaging_management_application.doctype.repack.repack.get_plant_wip_fg_warehouse_api",
+			args: { plant: frm.doc.plant },
 		})
 		.then((r) => {
-			frm._default_wip_fg_warehouse = r.message || null;
-			return frm._default_wip_fg_warehouse;
+			frm._plant_wip_fg_warehouse = r.message || null;
+			return frm._plant_wip_fg_warehouse;
 		});
 }
 
 function apply_default_target_warehouse(frm) {
 	for (const row of frm.doc.packed_fg_items || []) {
-		if (!row.target_warehouse && frm._default_wip_fg_warehouse) {
+		if (!row.target_warehouse && frm._plant_wip_fg_warehouse) {
 			set_model_value_if_changed(row.doctype, row.name, {
-				target_warehouse: frm._default_wip_fg_warehouse,
+				target_warehouse: frm._plant_wip_fg_warehouse,
 			});
 		}
 	}
@@ -1169,7 +1179,7 @@ function render_item_batch_ui(frm) {
 
 	field.$wrapper.html(`
 		<div class="repack-batch-ui" style="${REPACK_SECTION_DIVIDER}">
-			${render_batch_filter_banner(repack_rows, frm.doc.company, frm._default_wip_fg_warehouse)}
+			${render_batch_filter_banner(repack_rows, frm.doc.company, frm._plant_wip_fg_warehouse)}
 			<div class="text-muted small" style="padding: 8px 0;">${__("Loading batches...")}</div>
 		</div>
 	`);
@@ -1185,7 +1195,7 @@ function render_item_batch_ui(frm) {
 				html += render_batch_filter_banner(
 					repack_rows,
 					frm.doc.company,
-					frm._default_wip_fg_warehouse
+					frm._plant_wip_fg_warehouse
 				);
 
 				if (!repack_rows.length) {

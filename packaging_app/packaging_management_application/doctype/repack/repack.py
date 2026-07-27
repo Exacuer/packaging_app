@@ -14,8 +14,8 @@ from packaging_app.packaging_management_application.doctype.pack_fg.pack_fg impo
 	get_batch_doc_fields,
 	get_bundle_total_qty,
 	get_current_picks_from_bundle,
-	get_default_wip_fg_warehouse,
 	get_mutable_bundle_pool,
+	get_plant_wip_fg_warehouse,
 	link_inward_bundle_to_stock_entry,
 )
 
@@ -1034,6 +1034,7 @@ def get_active_batches_for_repack(
 	posting_date=None,
 	posting_time=None,
 	item_group="Packed Goods",
+	plant=None,
 ):
 	if isinstance(repack_items, str):
 		repack_items = frappe.parse_json(repack_items)
@@ -1045,6 +1046,7 @@ def get_active_batches_for_repack(
 			posting_date=posting_date,
 			posting_time=posting_time,
 			item_group=item_group,
+			plant=plant,
 		)
 
 	# When an anchor finished item is available, do not narrow batch visibility to only
@@ -1083,6 +1085,7 @@ def get_active_batches_for_repack(
 						posting_date=posting_date,
 						posting_time=posting_time,
 						item_group=item_group,
+						plant=plant,
 					)
 				)
 
@@ -1109,6 +1112,7 @@ def get_active_batches_for_repack(
 				posting_date=posting_date,
 				posting_time=posting_time,
 				item_group=item_group,
+				plant=plant,
 			)
 		)
 
@@ -1217,8 +1221,8 @@ def filter_batches_by_item_group(batches, item_group="Packed Goods"):
 
 
 @frappe.whitelist()
-def get_default_wip_fg_warehouse_api(company):
-	return get_default_wip_fg_warehouse(company)
+def get_plant_wip_fg_warehouse_api(plant):
+	return get_plant_wip_fg_warehouse(plant)
 
 
 @frappe.whitelist()
@@ -1229,6 +1233,7 @@ def get_active_batches(
 	posting_date=None,
 	posting_time=None,
 	item_group="Packed Goods",
+	plant=None,
 ):
 	from erpnext.stock.doctype.serial_and_batch_bundle.serial_and_batch_bundle import (
 		get_auto_batch_nos,
@@ -1238,7 +1243,7 @@ def get_active_batches(
 		frappe.throw(_("Company is required"))
 
 	if not warehouse:
-		warehouse = get_default_wip_fg_warehouse(company)
+		warehouse = get_plant_wip_fg_warehouse(plant)
 
 	kwargs = frappe._dict(
 		{

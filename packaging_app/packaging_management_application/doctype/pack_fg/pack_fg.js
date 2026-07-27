@@ -48,7 +48,7 @@ frappe.ui.form.on("Pack FG", {
 		setup_batch_section_header(frm);
 		setup_packing_material_stock_header(frm);
 		setup_packed_fg_header(frm);
-		set_default_wip_fg_warehouse(frm).then(() => {
+		set_plant_wip_fg_warehouse(frm).then(() => {
 			apply_default_source_warehouse(frm);
 			render_item_batch_ui(frm);
 			render_packing_material_stock_ui(frm);
@@ -57,15 +57,22 @@ frappe.ui.form.on("Pack FG", {
 	},
 
 	company(frm) {
-		set_default_wip_fg_warehouse(frm).then(() => {
+		set_plant_wip_fg_warehouse(frm).then(() => {
 			apply_default_source_warehouse(frm);
 			render_item_batch_ui(frm);
 			update_pack_fg_form_actions(frm);
 		});
 	},
 
+	// Plant drives the WIP FG warehouse, so changing it has to re-resolve the warehouse and
+	// redraw Batch Selection -- otherwise the previous plant's batches stay on screen.
 	plant(frm) {
 		set_plant_warehouse_queries(frm);
+		set_plant_wip_fg_warehouse(frm).then(() => {
+			apply_default_source_warehouse(frm);
+			render_item_batch_ui(frm);
+			update_pack_fg_form_actions(frm);
+		});
 	},
 
 	posting_date(frm) {
@@ -896,34 +903,37 @@ function get_batch_filter_args(frm) {
 	return {
 		company: frm.doc.company,
 		item_code: packing_row?.item_code || null,
-		warehouse: packing_row?.source_warehouse || frm._default_wip_fg_warehouse || null,
+		warehouse: packing_row?.source_warehouse || frm._plant_wip_fg_warehouse || null,
 		posting_date: frm.doc.posting_date,
 		posting_time: frm.doc.posting_time,
 		product_group: "Finished Goods",
+		plant: frm.doc.plant || null,
 	};
 }
 
-function set_default_wip_fg_warehouse(frm) {
-	if (!frm.doc.company) {
-		frm._default_wip_fg_warehouse = null;
+// The WIP FG warehouse comes from the selected Plant (Plant Warehouse.wip_fg_warehouse),
+// so Plant 1 and Plant 2 each read their own FG batches.
+function set_plant_wip_fg_warehouse(frm) {
+	if (!frm.doc.plant) {
+		frm._plant_wip_fg_warehouse = null;
 		return Promise.resolve(null);
 	}
 
 	return frappe
 		.call({
 			method:
-				"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_default_wip_fg_warehouse_api",
-			args: { company: frm.doc.company },
+				"packaging_app.packaging_management_application.doctype.pack_fg.pack_fg.get_plant_wip_fg_warehouse_api",
+			args: { plant: frm.doc.plant },
 		})
 		.then((r) => {
-			frm._default_wip_fg_warehouse = r.message || null;
-			return frm._default_wip_fg_warehouse;
+			frm._plant_wip_fg_warehouse = r.message || null;
+			return frm._plant_wip_fg_warehouse;
 		});
 }
 
 function apply_default_source_warehouse(frm) {
 	const packing_row = get_packing_row(frm);
-	if (!packing_row || packing_row.source_warehouse || !frm._default_wip_fg_warehouse) {
+	if (!packing_row || packing_row.source_warehouse || !frm._plant_wip_fg_warehouse) {
 		return;
 	}
 
@@ -931,7 +941,7 @@ function apply_default_source_warehouse(frm) {
 		packing_row.doctype,
 		packing_row.name,
 		"source_warehouse",
-		frm._default_wip_fg_warehouse
+		frm._plant_wip_fg_warehouse
 	);
 }
 
@@ -986,7 +996,7 @@ function render_item_batch_ui(frm) {
 
 	field.$wrapper.html(`
 		<div class="pack-fg-batch-ui" style="${PACK_FG_SECTION_DIVIDER}">
-			${render_batch_filter_banner(packing_row, frm.doc.company, frm._default_wip_fg_warehouse)}
+			${render_batch_filter_banner(packing_row, frm.doc.company, frm._plant_wip_fg_warehouse)}
 			<div class="text-muted small" style="padding: 8px 0;">${__("Loading batches...")}</div>
 		</div>
 	`);
@@ -1001,7 +1011,7 @@ function render_item_batch_ui(frm) {
 				html += render_batch_filter_banner(
 					packing_row,
 					frm.doc.company,
-					frm._default_wip_fg_warehouse
+					frm._plant_wip_fg_warehouse
 				);
 
 				if (!packing_row?.item_code) {
