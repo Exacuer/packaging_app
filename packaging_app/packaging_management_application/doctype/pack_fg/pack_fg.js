@@ -522,6 +522,71 @@ function get_pick_qty_from_inputs(frm) {
 	return total;
 }
 
+// FIFO auto-fill of Pick Qty across the Batch Selection rows so the total picked
+// matches the required qty (sum of Packed FG Items "qty" = the "Packed Qty" total).
+// Fills from the selected/start row downward — batches are already listed oldest-first,
+// so the selected batch is consumed first and, if short, the next batches top it up.
+// Rows before the start row and any rows beyond what is needed are cleared.
+function autofill_pick_qty_fifo(frm, $wrapper, $start_row) {
+	const precision = frappe.defaults.get_default("float_precision") || 3;
+	const { packed_qty } = get_packed_totals(frm);
+	let remaining = flt(packed_qty, precision);
+
+	if (remaining <= 0) {
+		frappe.show_alert(
+			{
+				message: __("Add rows in Packed FG Items first — nothing to pick yet."),
+				indicator: "orange",
+			},
+			5
+		);
+		return;
+	}
+
+	const has_start = !!($start_row && $start_row.length);
+	let started = !has_start;
+
+	$wrapper.find("tbody tr").each((_, tr) => {
+		const $input = $(tr).find(".batch-pick-qty");
+		if (!$input.length) {
+			return;
+		}
+
+		if (!started) {
+			if (has_start && tr === $start_row[0]) {
+				started = true;
+			} else {
+				$input.val("");
+				return;
+			}
+		}
+
+		if (remaining <= 0) {
+			$input.val("");
+			return;
+		}
+
+		const available = flt($input.data("available-qty"), precision);
+		const take = flt(Math.min(available, remaining), precision);
+		$input.val(take || "");
+		validate_batch_pick_qty($input);
+		remaining = flt(remaining - take, precision);
+	});
+
+	if (remaining > 0) {
+		frappe.show_alert(
+			{
+				message: __(
+					"Picked as much as available (FIFO). Still short by {0} — pick from another batch or reduce Pack Qty.",
+					[format_number(remaining)]
+				),
+				indicator: "orange",
+			},
+			6
+		);
+	}
+}
+
 function get_current_picks_from_ui(frm) {
 	const field = frm.get_field("item_batch_ui");
 	const packing_row = get_packing_row(frm);
@@ -1129,6 +1194,8 @@ function render_item_batch_ui(frm) {
 							.find(".batch-select-checkbox")
 							.not(this)
 							.prop("checked", false);
+						// Auto-fill Pick Qty via FIFO to match the Packed FG Items total.
+						autofill_pick_qty_fifo(frm, field.$wrapper, $(this).closest("tr"));
 					}
 					highlight_selected_batch_row(field.$wrapper);
 					update_total();
@@ -1150,6 +1217,23 @@ function render_item_batch_ui(frm) {
 				});
 
 				highlight_selected_batch_row(field.$wrapper);
+				// After a redraw (e.g. Push to Packing rebuilt the table), the Select
+				// Batch box can be re-checked programmatically without firing `change`,
+				// so the FIFO auto-fill never ran. If a batch is selected, Pick Qty is
+				// still empty, and batches have not been applied yet, fill it now.
+				const $selected_for_fill = field.$wrapper
+					.find(".batch-select-checkbox:checked")
+					.closest("tr");
+				if (
+					!is_readonly &&
+					$selected_for_fill.length &&
+					!(get_pick_qty_from_inputs(frm) > 0) &&
+					!packing_row?.serial_and_batch_bundle &&
+					get_packed_totals(frm).packed_qty > 0
+				) {
+					autofill_pick_qty_fifo(frm, field.$wrapper, $selected_for_fill);
+				}
+
 				update_total();
 
 				update_pack_fg_form_actions(frm);
