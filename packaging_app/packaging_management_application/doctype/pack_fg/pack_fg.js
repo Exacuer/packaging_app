@@ -387,6 +387,12 @@ function render_packing_material_stock_ui(frm) {
 						<th class="text-right" style="font-size: 12px;">${__("Packing Quantity in Warehouse")}</th>
 						<th style="font-size: 12px;">${__("Item fg")}</th>
 						<th class="text-right" style="font-size: 12px;">${__("Mainstore FG -Stock")}</th>
+						<th class="text-right" style="font-size: 12px;">${__("Goods In Transit")}</th>
+						${
+							data.show_wip_fg
+								? `<th class="text-right" style="font-size: 12px;">${frappe.utils.escape_html(data.wip_fg_label)} ${__("Stock")}</th>`
+								: ""
+						}
 					</tr>
 				</thead>
 				<tbody>`;
@@ -399,6 +405,8 @@ function render_packing_material_stock_ui(frm) {
 					<td class="text-right">${format_number(row.warehouse_qty)}</td>
 					<td>${frappe.utils.escape_html(row.packed_item_name || row.packed_item || "")}</td>
 					<td class="text-right">${format_number(row.mainstore_fg_stock)}</td>
+					<td class="text-right">${format_number(row.goods_in_transit_stock)}</td>
+					${data.show_wip_fg ? `<td class="text-right">${format_number(row.wip_fg_stock)}</td>` : ""}
 				</tr>`;
 			}
 

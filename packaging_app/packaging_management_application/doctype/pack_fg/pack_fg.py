@@ -1053,6 +1053,12 @@ def get_packing_material_stock(
 
 	company = frappe.get_cached_value("Warehouse", warehouse, "company")
 	mainstore_warehouse = get_mainstore_fg_warehouse(company)
+	transit_warehouse = get_goods_in_transit_warehouse(company)
+
+	# The WIP-FG stock column follows the source warehouse: shown only when it is Plant 1
+	# or Plant 2 WIP FG, with the header naming that plant. Hidden for any other warehouse.
+	src_warehouse_name = frappe.get_cached_value("Warehouse", warehouse, "warehouse_name") or ""
+	show_wip_fg = src_warehouse_name in ("Plant 1 WIP FG", "Plant 2 WIP FG")
 
 	rows = []
 	for material in get_packaging_material_data(item_code):
@@ -1062,15 +1068,13 @@ def get_packing_material_stock(
 		if not stock_item:
 			continue
 
-		# Mainstore FG stock = the packed FG item ("Item fg") stock in Main Store FG.
-		mainstore_fg_stock = 0.0
-		if mainstore_warehouse and packing_item:
-			mainstore_fg_stock = flt(
+		# All FG-stock columns track the packed FG item ("Item fg") = packing_item.
+		def _fg_stock(wh):
+			if not (wh and packing_item):
+				return 0.0
+			return flt(
 				get_stock_balance(
-					packing_item,
-					mainstore_warehouse,
-					posting_date=posting_date,
-					posting_time=posting_time,
+					packing_item, wh, posting_date=posting_date, posting_time=posting_time
 				)
 			)
 
@@ -1093,13 +1097,19 @@ def get_packing_material_stock(
 						posting_time=posting_time,
 					)
 				),
-				"mainstore_fg_stock": mainstore_fg_stock,
+				"mainstore_fg_stock": _fg_stock(mainstore_warehouse),
+				# Goods In Transit (common) + WIP-FG (plant-specific) packed-FG stock.
+				"goods_in_transit_stock": _fg_stock(transit_warehouse),
+				"wip_fg_stock": _fg_stock(warehouse) if show_wip_fg else 0.0,
 			}
 		)
 
 	return {
 		"warehouse": warehouse,
 		"mainstore_warehouse": mainstore_warehouse,
+		"transit_warehouse": transit_warehouse,
+		"show_wip_fg": show_wip_fg,
+		"wip_fg_label": src_warehouse_name if show_wip_fg else None,
 		"rows": rows,
 	}
 
@@ -1212,6 +1222,19 @@ def get_mainstore_fg_warehouse(company):
 		return None
 
 	warehouse = f"Main Store FG - {abbr}"
+	return warehouse if frappe.db.exists("Warehouse", warehouse) else None
+
+
+def get_goods_in_transit_warehouse(company):
+	"""Goods In Transit warehouse for the company (packed FG stock in transit)."""
+	if not company:
+		return None
+
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	if not abbr:
+		return None
+
+	warehouse = f"Goods In Transit - {abbr}"
 	return warehouse if frappe.db.exists("Warehouse", warehouse) else None
 
 
