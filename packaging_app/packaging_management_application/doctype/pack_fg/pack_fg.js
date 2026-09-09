@@ -177,21 +177,25 @@ frappe.ui.form.on("Pack FG Item Source", {
 frappe.ui.form.on("Pack FG Item Target", {
 	pack_qty(frm, cdt, cdn) {
 		calculate_packed_qty(frm, cdt, cdn);
+		maybe_realtime_autofill_pick_qty(frm);
 		update_qty_summary(frm);
 		validate_packed_fg_warehouse_stock(frm, { rows: [locals[cdt][cdn]] });
 	},
 
 	filling_capacity(frm, cdt, cdn) {
 		calculate_packed_qty(frm, cdt, cdn);
+		maybe_realtime_autofill_pick_qty(frm);
 		update_qty_summary(frm);
 		validate_packed_fg_warehouse_stock(frm, { rows: [locals[cdt][cdn]] });
 	},
 
 	qty(frm) {
+		maybe_realtime_autofill_pick_qty(frm);
 		update_qty_summary(frm);
 	},
 
 	packed_fg_items_remove(frm) {
+		maybe_realtime_autofill_pick_qty(frm);
 		update_qty_summary(frm);
 		setup_apply_batches_button(frm);
 	},
@@ -527,12 +531,19 @@ function get_pick_qty_from_inputs(frm) {
 // Fills from the selected/start row downward — batches are already listed oldest-first,
 // so the selected batch is consumed first and, if short, the next batches top it up.
 // Rows before the start row and any rows beyond what is needed are cleared.
-function autofill_pick_qty_fifo(frm, $wrapper, $start_row) {
+function autofill_pick_qty_fifo(frm, $wrapper, $start_row, opts = {}) {
+	const silent = !!opts.silent;
 	const precision = frappe.defaults.get_default("float_precision") || 3;
 	const { packed_qty } = get_packed_totals(frm);
 	let remaining = flt(packed_qty, precision);
 
 	if (remaining <= 0) {
+		// Real-time (silent) fill: clear all Pick Qty inputs and stop — no nagging alert
+		// while the user is still typing the Packed FG Items qty.
+		if (silent) {
+			$wrapper.find(".batch-pick-qty").val("");
+			return;
+		}
 		frappe.show_alert(
 			{
 				message: __("Add rows in Packed FG Items first — nothing to pick yet."),
@@ -573,7 +584,7 @@ function autofill_pick_qty_fifo(frm, $wrapper, $start_row) {
 		remaining = flt(remaining - take, precision);
 	});
 
-	if (remaining > 0) {
+	if (remaining > 0 && !silent) {
 		frappe.show_alert(
 			{
 				message: __(
@@ -585,6 +596,26 @@ function autofill_pick_qty_fifo(frm, $wrapper, $start_row) {
 			6
 		);
 	}
+}
+
+// Real-time FIFO fill: as the Packed FG Items qty changes, refill the Batch Selection
+// Pick Qty (from the oldest batch down) to match the new Packed Qty total — so the numbers
+// track live and the operator can then just tick the batches they want. Does nothing once
+// batches have been applied (don't overwrite an applied bundle).
+function maybe_realtime_autofill_pick_qty(frm) {
+	if (are_batches_applied(frm)) {
+		return;
+	}
+	const field = frm.get_field("item_batch_ui");
+	if (!field) {
+		return;
+	}
+	const $wrapper = field.$wrapper;
+	if (!$wrapper.find(".batch-pick-qty").length) {
+		return; // Batch Selection table not rendered yet
+	}
+	autofill_pick_qty_fifo(frm, $wrapper, null, { silent: true });
+	update_qty_summary(frm, get_pick_qty_from_inputs(frm));
 }
 
 function get_current_picks_from_ui(frm) {
