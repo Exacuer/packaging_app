@@ -8,6 +8,8 @@ frappe.ui.form.on("Pack FG", {
 
 	refresh(frm) {
 		frm.add_custom_button(__("Pending Sales Order"), () => show_pending_sales_order_dialog(frm));
+		const pf_btn = frm.add_custom_button(__("Pack FG Forecast"), () => open_pack_fg_forecast_dialog(frm));
+		$(pf_btn).removeClass("btn-default").addClass("btn-primary");
 		if (frm.fields_dict?.packing_items?.grid) {
 			frm.fields_dict.packing_items.grid.update_docfield_property("qty", "read_only", 1);
 		}
@@ -1586,4 +1588,100 @@ function build_pending_so_html(rows) {
 				</tfoot>
 			</table>
 		</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Pack FG Forecast — clubbed packed-goods forecast (across all Sales Persons) vs
+// actual packing, by pack size, week-wise. Period = the Posting Date's month.
+// ---------------------------------------------------------------------------
+function open_pack_fg_forecast_dialog(frm) {
+	if (!frm.doc.company) {
+		frappe.msgprint(__("Set Company first."));
+		return;
+	}
+	const ref = frm.doc.posting_date || frappe.datetime.get_today();
+	const start = moment(ref).startOf("month").format("YYYY-MM-DD");
+	const end = moment(ref).endOf("month").format("YYYY-MM-DD");
+
+	// If item(s) are entered in Packing Items, show only those FG items in the popup.
+	const filter_items = (frm.doc.packing_items || [])
+		.map((r) => r.item_code)
+		.filter(Boolean);
+	const filter_set = new Set(filter_items);
+
+	const dialog = new frappe.ui.Dialog({
+		title: __("Pack FG Forecast — {0} to {1}", [
+			frappe.datetime.str_to_user(start),
+			frappe.datetime.str_to_user(end),
+		]),
+		size: "extra-large",
+		fields: [{ fieldtype: "HTML", fieldname: "body" }],
+	});
+	dialog.fields_dict.body.$wrapper.html(`<div class="text-muted">${__("Loading…")}</div>`);
+	dialog.show();
+
+	frappe
+		.xcall(
+			"sales_forecast.sales_forecast.doctype.forecast_club.forecast_club.get_pack_fg_clubbing",
+			{ start_date: start, end_date: end, company: frm.doc.company }
+		)
+		.then((rows) => {
+			let list = rows || [];
+			if (filter_set.size) {
+				list = list.filter((r) => filter_set.has(r.item_code));
+			}
+			dialog.fields_dict.body.$wrapper.html(render_pack_fg_forecast_table(list));
+		})
+		.catch(() => {
+			dialog.fields_dict.body.$wrapper.html(
+				`<div class="text-danger">${__("Could not load Pack FG forecast data.")}</div>`
+			);
+		});
+}
+
+function render_pack_fg_forecast_table(rows) {
+	if (!rows.length) {
+		return `<div class="text-muted">${__(
+			"No clubbed packed-goods forecast for this month / company."
+		)}</div>`;
+	}
+	const num = (v) => (flt(v) ? format_number(flt(v)) : "0");
+	const head = `
+		<thead>
+			<tr>
+				<th rowspan="2" style="vertical-align:middle">${__("FG Item")}</th>
+				<th rowspan="2" style="vertical-align:middle;text-align:right">${__("Pack Size")}</th>
+				<th colspan="2" style="text-align:center">${__("Week 1")}</th>
+				<th colspan="2" style="text-align:center">${__("Week 2")}</th>
+				<th colspan="2" style="text-align:center">${__("Week 3")}</th>
+				<th colspan="2" style="text-align:center">${__("Week 4")}</th>
+			</tr>
+			<tr>
+				<th style="text-align:right">${__("Forecast")}</th><th style="text-align:right">${__("Actual Pack")}</th>
+				<th style="text-align:right">${__("Forecast")}</th><th style="text-align:right">${__("Actual Pack")}</th>
+				<th style="text-align:right">${__("Forecast")}</th><th style="text-align:right">${__("Actual Pack")}</th>
+				<th style="text-align:right">${__("Forecast")}</th><th style="text-align:right">${__("Actual Pack")}</th>
+			</tr>
+		</thead>`;
+	const body = rows
+		.map((r) => {
+			const name = frappe.utils.escape_html(r.item_name || r.item_code || "");
+			const code = frappe.utils.escape_html(r.item_code || "");
+			const label = name && name !== code ? `${code} <span class="text-muted">— ${name}</span>` : code;
+			return `<tr>
+				<td>${label}</td>
+				<td style="text-align:right">${num(r.filling_capacity)}</td>
+				<td style="text-align:right">${num(r.fc_w1)}</td><td style="text-align:right"><strong>${num(r.actual_w1)}</strong></td>
+				<td style="text-align:right">${num(r.fc_w2)}</td><td style="text-align:right"><strong>${num(r.actual_w2)}</strong></td>
+				<td style="text-align:right">${num(r.fc_w3)}</td><td style="text-align:right"><strong>${num(r.actual_w3)}</strong></td>
+				<td style="text-align:right">${num(r.fc_w4)}</td><td style="text-align:right"><strong>${num(r.actual_w4)}</strong></td>
+			</tr>`;
+		})
+		.join("");
+	return `<div style="overflow-x:auto">
+		<table class="table table-bordered" style="font-size:12px">${head}<tbody>${body}</tbody></table>
+		<div class="text-muted" style="margin-top:6px">
+			${__("Forecast = clubbed packed counts across all Sales Persons. Actual Pack = submitted 'Packing' Stock Entries, by pack size and week.")}
+		</div>
+	</div>`;
 }
