@@ -6,7 +6,7 @@ app_email = "choudharyvivek195@gmail.com"
 app_license = "mit"
 
 # Apps
-# ------------------ 
+# ------------------
 
 # required_apps = []
 
