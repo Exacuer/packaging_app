@@ -1650,6 +1650,7 @@ function render_pack_fg_forecast_table(rows) {
 		<thead>
 			<tr>
 				<th rowspan="2" style="vertical-align:middle">${__("FG Item")}</th>
+				<th rowspan="2" style="vertical-align:middle">${__("Packed Good")}</th>
 				<th rowspan="2" style="vertical-align:middle;text-align:right">${__("Pack Size")}</th>
 				<th colspan="2" style="text-align:center">${__("Week 1")}</th>
 				<th colspan="2" style="text-align:center">${__("Week 2")}</th>
@@ -1665,11 +1666,11 @@ function render_pack_fg_forecast_table(rows) {
 		</thead>`;
 	const body = rows
 		.map((r) => {
-			const name = frappe.utils.escape_html(r.item_name || r.item_code || "");
+			const packed = frappe.utils.escape_html(r.packed_good_name || r.packed_good || "");
 			const code = frappe.utils.escape_html(r.item_code || "");
-			const label = name && name !== code ? `${code} <span class="text-muted">— ${name}</span>` : code;
 			return `<tr>
-				<td>${label}</td>
+				<td>${code}</td>
+				<td>${packed}</td>
 				<td style="text-align:right">${num(r.filling_capacity)}</td>
 				<td style="text-align:right">${num(r.fc_w1)}</td><td style="text-align:right"><strong>${num(r.actual_w1)}</strong></td>
 				<td style="text-align:right">${num(r.fc_w2)}</td><td style="text-align:right"><strong>${num(r.actual_w2)}</strong></td>
